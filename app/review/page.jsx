@@ -1,19 +1,19 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { getReviewsByUrl, submitReview } from "./actions";
 
 const TAG_OPTIONS = [
-  "3PˆÈã",
-  "ƒRƒXƒvƒŒ",
+  "3Pä»¥ä¸Š",
+  "ã‚³ã‚¹ãƒ—ãƒ¬",
   "SM",
-  "n—",
-  "ƒŒƒCƒv",
-  "’n—‹Œn",
-  "‹“û",
-  "‘fl",
-  "Šé‰æ",
-  "ƒnƒB‚è",
+  "ç†Ÿå¥³",
+  "ãƒ¬ã‚¤ãƒ—",
+  "åœ°é›·ç³»",
+  "å·¨ä¹³",
+  "ç´ äºº",
+  "ä¼ç”»",
+  "ãƒãƒ¡æ’®ã‚Š",
 ];
 
 function parseReviewUrl(url) {
@@ -66,10 +66,14 @@ export default function ReviewPage() {
 
     const timer = setTimeout(() => {
       startTransition(async () => {
-        const result = await getReviewsByUrl(url);
-        setParsed(result.parsed);
-        setReviews(result.reviews);
-        setSummary(result.summary);
+        try {
+          const result = await getReviewsByUrl(url);
+          setParsed(result.parsed);
+          setReviews(result.reviews);
+          setSummary(result.summary);
+        } catch {
+          setStatus("ãƒ¬ãƒ“ãƒ¥ãƒ¼ã®å–å¾—ã«å¤±æ•—ã—ã¾ã—ãŸã€‚");
+        }
       });
     }, 250);
 
@@ -87,21 +91,25 @@ export default function ReviewPage() {
     setStatus("");
 
     startTransition(async () => {
-      const result = await submitReview({
-        url,
-        score,
-        comment,
-        tags: selectedTags,
-      });
+      try {
+        const result = await submitReview({
+          url,
+          score,
+          comment,
+          tags: selectedTags,
+        });
 
-      setStatus(result.message);
-      if (!result.ok) return;
+        setStatus(result.message);
+        if (!result.ok) return;
 
-      const refreshed = await getReviewsByUrl(url);
-      setParsed(refreshed.parsed);
-      setReviews(refreshed.reviews);
-      setSummary(refreshed.summary);
-      setComment("");
+        const refreshed = await getReviewsByUrl(url);
+        setParsed(refreshed.parsed);
+        setReviews(refreshed.reviews);
+        setSummary(refreshed.summary);
+        setComment("");
+      } catch {
+        setStatus("æŠ•ç¨¿ã«å¤±æ•—ã—ã¾ã—ãŸã€‚");
+      }
     });
   }
 
@@ -109,15 +117,15 @@ export default function ReviewPage() {
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#1f2f46_0%,_#0a0f1a_35%,_#05070d_100%)] text-slate-100">
       <div className="mx-auto max-w-6xl px-4 py-10 md:px-8">
         <div className="mb-8 rounded-xl border border-amber-400/30 bg-slate-950/70 p-6 shadow-[0_0_35px_rgba(245,158,11,0.12)] backdrop-blur">
-          <h1 className="text-3xl font-bold tracking-wide text-amber-300">AVEFantia”á•]‹óŠÔ</h1>
-          <p className="mt-2 text-sm text-slate-300">URL‚ğ“\‚é‚Æì•iID‚ğ©“®”»’è‚µA“¯ˆêì•i‚Ì“Œv‚ÆƒŒƒrƒ…[‚ğ•\¦‚µ‚Ü‚·B</p>
+          <h1 className="text-3xl font-bold tracking-wide text-amber-300">AVãƒ»Fantiaæ‰¹è©•ç©ºé–“</h1>
+          <p className="mt-2 text-sm text-slate-300">URLã‚’è²¼ã‚‹ã¨ä½œå“IDã‚’è‡ªå‹•åˆ¤å®šã—ã€åŒä¸€ä½œå“ã®çµ±è¨ˆã¨ãƒ¬ãƒ“ãƒ¥ãƒ¼ã‚’è¡¨ç¤ºã—ã¾ã™ã€‚</p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
           <section className="rounded-xl border border-cyan-400/20 bg-slate-900/70 p-6 shadow-[0_0_24px_rgba(34,211,238,0.1)]">
             <form onSubmit={onSubmit} className="space-y-5">
               <div>
-                <label className="mb-1 block text-sm text-slate-300">ì•iURL</label>
+                <label className="mb-1 block text-sm text-slate-300">ä½œå“URL</label>
                 <input
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
@@ -126,12 +134,12 @@ export default function ReviewPage() {
                   required
                 />
                 <p className="mt-2 text-xs text-slate-400">
-                  ”»’è: {parsed ? `${parsed.platform} / ${parsed.productId}` : "–¢”»’è"}
+                  åˆ¤å®š: {parsed ? `${parsed.platform} / ${parsed.productId}` : "æœªåˆ¤å®š"}
                 </p>
               </div>
 
               <div>
-                <label className="mb-1 block text-sm text-slate-300">“_”: {score}</label>
+                <label className="mb-1 block text-sm text-slate-300">ç‚¹æ•°: {score}</label>
                 <input
                   type="range"
                   min={0}
@@ -151,7 +159,7 @@ export default function ReviewPage() {
               </div>
 
               <div>
-                <p className="mb-2 text-sm text-slate-300">ƒ^ƒO</p>
+                <p className="mb-2 text-sm text-slate-300">ã‚¿ã‚°</p>
                 <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
                   {TAG_OPTIONS.map((tag) => (
                     <label key={tag} className="flex cursor-pointer items-center gap-2 rounded border border-slate-700/80 bg-slate-950/60 px-2 py-1 text-sm hover:border-amber-300/50">
@@ -168,13 +176,13 @@ export default function ReviewPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm text-slate-300">Š´‘zi”CˆÓj</label>
+                <label className="mb-1 block text-sm text-slate-300">æ„Ÿæƒ³ï¼ˆä»»æ„ï¼‰</label>
                 <textarea
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   rows={4}
                   className="w-full rounded-md border border-cyan-400/20 bg-slate-950/70 px-3 py-2 text-sm outline-none transition focus:border-cyan-300"
-                  placeholder="ˆêŒ¾ƒŒƒrƒ…["
+                  placeholder="ä¸€è¨€ãƒ¬ãƒ“ãƒ¥ãƒ¼"
                 />
               </div>
 
@@ -183,7 +191,7 @@ export default function ReviewPage() {
                 disabled={isPending || !parsed}
                 className="w-full rounded-md border border-amber-300/70 bg-gradient-to-r from-amber-500 to-yellow-300 px-4 py-2 font-semibold text-slate-950 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isPending ? "ˆ—’†..." : "”á•]‚ğ“Še‚·‚é"}
+                {isPending ? "å‡¦ç†ä¸­..." : "æ‰¹è©•ã‚’æŠ•ç¨¿ã™ã‚‹"}
               </button>
               {status && <p className="text-sm text-amber-200">{status}</p>}
             </form>
@@ -191,25 +199,25 @@ export default function ReviewPage() {
 
           <aside className="space-y-6">
             <div className="rounded-xl border border-amber-400/30 bg-slate-900/70 p-5">
-              <h2 className="mb-3 text-lg font-semibold text-amber-300">“Œv</h2>
+              <h2 className="mb-3 text-lg font-semibold text-amber-300">çµ±è¨ˆ</h2>
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div className="rounded-md border border-slate-700/80 bg-slate-950/70 p-3">
-                  <p className="text-xs text-slate-400">•½‹Ï“_</p>
+                  <p className="text-xs text-slate-400">å¹³å‡ç‚¹</p>
                   <p className="text-xl font-bold text-cyan-300">{formatNumber(summary.average)}</p>
                 </div>
                 <div className="rounded-md border border-slate-700/80 bg-slate-950/70 p-3">
-                  <p className="text-xs text-slate-400">’†‰›’l</p>
+                  <p className="text-xs text-slate-400">ä¸­å¤®å€¤</p>
                   <p className="text-xl font-bold text-cyan-300">{formatNumber(summary.median)}</p>
                 </div>
                 <div className="rounded-md border border-slate-700/80 bg-slate-950/70 p-3">
-                  <p className="text-xs text-slate-400">Œ”</p>
+                  <p className="text-xs text-slate-400">ä»¶æ•°</p>
                   <p className="text-xl font-bold text-cyan-300">{summary.total}</p>
                 </div>
               </div>
             </div>
 
             <div className="overflow-hidden rounded-xl border border-cyan-400/20 bg-slate-900/70 p-5">
-              <h2 className="mb-3 text-lg font-semibold text-cyan-300">ƒvƒŒƒrƒ…[</h2>
+              <h2 className="mb-3 text-lg font-semibold text-cyan-300">ãƒ—ãƒ¬ãƒ“ãƒ¥ãƒ¼</h2>
               {previewImage ? (
                 <img
                   src={previewImage}
@@ -226,11 +234,11 @@ export default function ReviewPage() {
         </div>
 
         <section className="mt-8 rounded-xl border border-amber-400/20 bg-slate-900/70 p-6">
-          <h2 className="mb-4 text-xl font-semibold text-amber-200">ƒŒƒrƒ…[ˆê——iV‚µ‚¢‡j</h2>
+          <h2 className="mb-4 text-xl font-semibold text-amber-200">ãƒ¬ãƒ“ãƒ¥ãƒ¼ä¸€è¦§ï¼ˆæ–°ã—ã„é †ï¼‰</h2>
           <div className="space-y-3">
             {reviews.length === 0 && (
               <p className="rounded-md border border-dashed border-slate-700 p-5 text-sm text-slate-400">
-                ‘ÎÛì•i‚ÌƒŒƒrƒ…[‚Í‚Ü‚¾‚ ‚è‚Ü‚¹‚ñB
+                å¯¾è±¡ä½œå“ã®ãƒ¬ãƒ“ãƒ¥ãƒ¼ã¯ã¾ã ã‚ã‚Šã¾ã›ã‚“ã€‚
               </p>
             )}
             {reviews.map((review) => (
@@ -241,7 +249,7 @@ export default function ReviewPage() {
                   </p>
                   <p className="text-sm text-amber-300">{new Date(review.created_at).toLocaleString()}</p>
                 </div>
-                <p className="text-2xl font-bold text-amber-200">{review.score} “_</p>
+                <p className="text-2xl font-bold text-amber-200">{review.score} ç‚¹</p>
                 {review.comment && <p className="mt-2 text-sm text-slate-200">{review.comment}</p>}
                 <div className="mt-3 flex flex-wrap gap-2">
                   {(review.tags ?? []).map((tag) => (

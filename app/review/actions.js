@@ -43,10 +43,10 @@ export async function initDatabase() {
     await sql`
       INSERT INTO reviews (product_id, platform, score, comment, tags)
       VALUES
-      ('ssis001', 'fanza', 95, 'ê_çÏÅBì`ê‡ÅB', ARRAY['ÉRÉXÉvÉå', '3Pà»è„']),
-      ('12345', 'fantia', 80, 'ç∑ï™Ç™ëΩÇ≠Çƒó«Ç¢', ARRAY['ínóãån', 'ÉRÉXÉvÉå']),
-      ('midv002', 'fanza', 15, 'ä˙ë“äOÇÍ', ARRAY['ènèó']),
-      ('ssis001', 'fanza', 100, 'î≤ÇØÇÈ', ARRAY['SM', 'ÉåÉCÉv'])
+      ('ssis001', 'fanza', 95, 'Á•û‰Ωú„ÄÇ‰ºùË™¨„ÄÇ', ARRAY['„Ç≥„Çπ„Éó„É¨', '3P‰ª•‰∏ä']),
+      ('12345', 'fantia', 80, 'Â∑ÆÂàÜ„ÅåÂ§ö„Åè„Å¶ËâØ„ÅÑ', ARRAY['Âú∞Èõ∑Á≥ª', '„Ç≥„Çπ„Éó„É¨']),
+      ('midv002', 'fanza', 15, 'ÊúüÂæÖÂ§ñ„Çå', ARRAY['ÁÜüÂ•≥']),
+      ('ssis001', 'fanza', 100, 'Êäú„Åë„Çã', ARRAY['SM', '„É¨„Ç§„Éó'])
     `;
   }
 }
@@ -83,36 +83,52 @@ async function getReviewsInternal(productId, platform) {
 }
 
 export async function getReviewsByUrl(url) {
-  const parsed = parseReviewUrl(url);
-  if (!parsed) {
+  try {
+    const parsed = parseReviewUrl(url);
+    if (!parsed) {
+      return {
+        parsed: null,
+        reviews: [],
+        summary: { average: null, median: null, total: 0 },
+      };
+    }
+    return getReviewsInternal(parsed.productId, parsed.platform);
+  } catch {
     return {
       parsed: null,
       reviews: [],
       summary: { average: null, median: null, total: 0 },
     };
   }
-  return getReviewsInternal(parsed.productId, parsed.platform);
 }
 
 export async function submitReview(input) {
-  const parsed = parseReviewUrl(input.url);
+  try {
+    const parsed = parseReviewUrl(input.url);
 
-  if (!parsed) {
-    return { ok: false, message: "URLÇ©ÇÁçÏïiIDÇíäèoÇ≈Ç´Ç‹ÇπÇÒÇ≈ÇµÇΩÅB", parsed: null };
+    if (!parsed) {
+      return { ok: false, message: "URL„Åã„Çâ‰ΩúÂìÅID„ÇíÊäΩÂá∫„Åß„Åç„Åæ„Åõ„Çì„Åß„Åó„Åü„ÄÇ", parsed: null };
+    }
+
+    await initDatabase();
+
+    const score = Math.max(0, Math.min(100, Math.round(Number(input.score) || 0)));
+    const cleanComment = input.comment?.trim() || null;
+    const cleanTags = Array.from(new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean)));
+
+    await sql`
+      INSERT INTO reviews (product_id, platform, score, comment, tags)
+      VALUES (${parsed.productId}, ${parsed.platform}, ${score}, ${cleanComment}, ${cleanTags})
+    `;
+
+    revalidatePath("/review");
+
+    return { ok: true, message: "ÊäïÁ®ø„Åó„Åæ„Åó„Åü„ÄÇ", parsed };
+  } catch {
+    return {
+      ok: false,
+      message: "DBÊé•Á∂ö„Å´Â§±Êïó„Åó„Åæ„Åó„Åü„ÄÇ.env.local „ÅÆ Postgres Ë®≠ÂÆö„ÇíÁ¢∫Ë™ç„Åó„Å¶„Åè„Å†„Åï„ÅÑ„ÄÇ",
+      parsed: null,
+    };
   }
-
-  await initDatabase();
-
-  const score = Math.max(0, Math.min(100, Math.round(Number(input.score) || 0)));
-  const cleanComment = input.comment?.trim() || null;
-  const cleanTags = Array.from(new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean)));
-
-  await sql`
-    INSERT INTO reviews (product_id, platform, score, comment, tags)
-    VALUES (${parsed.productId}, ${parsed.platform}, ${score}, ${cleanComment}, ${cleanTags})
-  `;
-
-  revalidatePath("/review");
-
-  return { ok: true, message: "ìäçeÇµÇ‹ÇµÇΩÅB", parsed };
 }
