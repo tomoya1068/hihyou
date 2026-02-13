@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { getProductPageData } from "@/app/review/actions";
+import { getProductPageData, saveOverallComment } from "@/app/review/actions";
 
 function formatNumber(value) {
   if (value === null || Number.isNaN(value)) return "-";
@@ -14,7 +14,10 @@ export default function TitleDetailPage() {
   const params = useParams();
   const platform = String(params?.platform ?? "").toLowerCase();
   const productId = String(params?.productId ?? "").toLowerCase();
+
   const [data, setData] = useState(null);
+  const [overallComment, setOverallComment] = useState("");
+  const [status, setStatus] = useState("");
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -22,6 +25,7 @@ export default function TitleDetailPage() {
     startTransition(async () => {
       const result = await getProductPageData(platform, productId);
       setData(result);
+      setOverallComment(result.overallComment || "");
     });
   }, [platform, productId]);
 
@@ -29,6 +33,21 @@ export default function TitleDetailPage() {
     if (!data?.distribution?.length) return 1;
     return Math.max(1, ...data.distribution.map((d) => d.count));
   }, [data]);
+
+  async function onSaveOverallComment(e) {
+    e.preventDefault();
+    setStatus("");
+
+    startTransition(async () => {
+      const result = await saveOverallComment({ platform, productId, comment: overallComment });
+      setStatus(result.message);
+      if (!result.ok) return;
+
+      const refreshed = await getProductPageData(platform, productId);
+      setData(refreshed);
+      setOverallComment(refreshed.overallComment || "");
+    });
+  }
 
   if (!platform || !productId) {
     return <div className="panel p-6 text-sm text-rose-300">作品パラメータが不正です。</div>;
@@ -70,6 +89,16 @@ export default function TitleDetailPage() {
       {data.error && <p className="panel p-4 text-sm text-rose-300">{data.error}</p>}
 
       <section className="panel p-6">
+        <h2 className="mb-4 text-xl font-semibold text-cyan-200">女優・出演者</h2>
+        {data.actressNames.length === 0 && <p className="text-sm text-slate-400">抽出できる出演者情報がまだありません。</p>}
+        <div className="flex flex-wrap gap-2">
+          {data.actressNames.map((name) => (
+            <span key={name} className="rounded-full border border-cyan-400/40 bg-cyan-500/10 px-3 py-1 text-sm text-cyan-200">{name}</span>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel p-6">
         <h2 className="mb-4 text-xl font-semibold text-cyan-200">点数分布</h2>
         <div className="space-y-2">
           {data.distribution.map((d) => (
@@ -86,12 +115,27 @@ export default function TitleDetailPage() {
 
       <section className="panel p-6">
         <h2 className="mb-3 text-lg font-semibold text-amber-200">参照URL</h2>
-        <div className="space-y-2 text-sm">
+        <div className="space-y-2 break-all text-sm">
           <p><a className="text-cyan-200 underline" target="_blank" rel="noreferrer" href={data.canonicalUrl}>{data.canonicalUrl}</a></p>
           {data.sourceUrls.map((u) => (
             <p key={u}><a className="text-slate-300 underline" target="_blank" rel="noreferrer" href={u}>{u}</a></p>
           ))}
         </div>
+      </section>
+
+      <section className="panel p-6">
+        <h2 className="mb-4 text-xl font-semibold text-amber-200">作品の全体コメント</h2>
+        <form onSubmit={onSaveOverallComment} className="space-y-3">
+          <textarea
+            value={overallComment}
+            onChange={(e) => setOverallComment(e.target.value)}
+            rows={4}
+            placeholder="この作品全体へのコメントを1つにまとめる欄"
+            className="w-full rounded-md border border-cyan-400/20 bg-slate-950/70 px-3 py-2 text-sm outline-none transition focus:border-cyan-300"
+          />
+          <button type="submit" className="btn-cyan" disabled={isPending}>全体コメントを保存</button>
+          {status && <p className="text-sm text-amber-200">{status}</p>}
+        </form>
       </section>
 
       <section className="panel p-6">

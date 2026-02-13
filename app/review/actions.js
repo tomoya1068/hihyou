@@ -82,12 +82,153 @@ function formatDistributionRows(rows) {
   ];
 
   const map = new Map(rows.map((r) => [r.bucket, Number(r.count ?? 0)]));
-  return bins.map(([label, min, max]) => ({
-    label,
-    min,
-    max,
-    count: map.get(label) ?? 0,
-  }));
+  return bins.map(([label, min, max]) => ({ label, min, max, count: map.get(label) ?? 0 }));
+}
+
+function stripTags(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeNameList(names) {
+  const out = [];
+  const seen = new Set();
+  for (const n of names) {
+    const s = String(n ?? "").trim();
+    if (!s) continue;
+    if (s.length > 40) continue;
+    if (/https?:\/\//i.test(s)) continue;
+    if (/^[0-9]+$/.test(s)) continue;
+    if (/[<>]/.test(s)) continue;
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
+function extractNamesFromJsonLd(html) {
+  const names = [];
+  const blocks = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi) ?? [];
+
+  for (const block of blocks) {
+    const jsonText = block.replace(/^<script[^>]*>/i, "").replace(/<\/script>$/i, "").trim();
+    try {
+      const parsed = JSON.parse(jsonText);
+      const list = Array.isArray(parsed) ? parsed : [parsed];
+      for (const obj of list) {
+        const actor = obj?.actor;
+        if (Array.isArray(actor)) {
+          actor.forEach((a) => names.push(a?.name || a));
+        } else if (actor) {
+          names.push(actor?.name || actor);
+        }
+
+        const performers = obj?.performer;
+        if (Array.isArray(performers)) performers.forEach((p) => names.push(p?.name || p));
+        else if (performers) names.push(performers?.name || performers);
+      }
+    } catch {
+      // ignore malformed json-ld
+    }
+  }
+
+  return names;
+}
+
+function extractNamesFromHtml(html, platform) {
+  const names = [];
+
+  names.push(...extractNamesFromJsonLd(html));
+
+  const text = stripTags(html);
+  const labelRegex = /(出演者|女優|キャスト|モデル)[:：]\s*([^\n\r]{1,120})/gi;
+  let m;
+  while ((m = labelRegex.exec(text)) !== null) {
+    const chunk = m[2]
+      .split(/[\/・,，、\s]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    names.push(...chunk);
+  }
+
+  const metaKeywords = /<meta[^>]+name=["']keywords["'][^>]+content=["']([^"']+)["'][^>]*>/i.exec(html)?.[1] ?? "";
+  if (metaKeywords) {
+    names.push(...metaKeywords.split(/[;,，、]/).map((x) => x.trim()));
+  }
+
+  if (platform === "fantia") {
+    const title = /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["'][^>]*>/i.exec(html)?.[1] ?? "";
+    const t = title.split(/[|｜]/)[0]?.trim();
+    if (t) names.push(t);
+  }
+
+  return normalizeNameList(names);
+}
+
+async function fetchActressNamesFromUrl(url, platform) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "user-agent": "Mozilla/5.0 (compatible; ReviewBot/1.0)",
+      },
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) return [];
+    const html = await res.text();
+    return extractNamesFromHtml(html, platform);
+  } catch {
+    return [];
+  }
+}
+
+async function resolveActressNames(productId, platform) {
+  const existing = await sql`
+    SELECT actress_names
+    FROM reviews
+    WHERE product_id = ${productId} AND platform = ${platform}
+      AND actress_names IS NOT NULL
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+  `;
+
+  const fromDb = existing.rows[0]?.actress_names;
+  if (Array.isArray(fromDb) && fromDb.length > 0) return fromDb;
+
+  const sourceRows = await sql`
+    SELECT source_url
+    FROM reviews
+    WHERE product_id = ${productId} AND platform = ${platform} AND source_url IS NOT NULL
+    ORDER BY created_at DESC, id DESC
+    LIMIT 5
+  `;
+
+  for (const row of sourceRows.rows) {
+    const names = await fetchActressNamesFromUrl(row.source_url, platform);
+    if (names.length > 0) {
+      await sql`
+        UPDATE reviews
+        SET actress_names = ${names}
+        WHERE product_id = ${productId} AND platform = ${platform}
+          AND (actress_names IS NULL OR array_length(actress_names, 1) IS NULL)
+      `;
+      return names;
+    }
+  }
+
+  return [];
 }
 
 export async function initDatabase() {
@@ -98,6 +239,7 @@ export async function initDatabase() {
       platform VARCHAR(50) NOT NULL,
       product_name VARCHAR(255),
       source_url TEXT,
+      actress_names TEXT[],
       author VARCHAR(32) DEFAULT 'user',
       score INTEGER NOT NULL CHECK (score >= 0 AND score <= 100),
       comment TEXT,
@@ -106,8 +248,19 @@ export async function initDatabase() {
     )
   `;
 
+  await sql`
+    CREATE TABLE IF NOT EXISTS product_notes (
+      product_id VARCHAR(255) NOT NULL,
+      platform VARCHAR(50) NOT NULL,
+      overall_comment TEXT,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (product_id, platform)
+    )
+  `;
+
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS product_name VARCHAR(255)`;
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS source_url TEXT`;
+  await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS actress_names TEXT[]`;
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS author VARCHAR(32) DEFAULT 'user'`;
 
   const countResult = await sql`SELECT COUNT(*)::int AS count FROM reviews`;
@@ -115,13 +268,40 @@ export async function initDatabase() {
 
   if (count === 0) {
     await sql`
-      INSERT INTO reviews (product_id, platform, product_name, source_url, author, score, comment, tags)
+      INSERT INTO reviews (product_id, platform, product_name, source_url, actress_names, author, score, comment, tags)
       VALUES
-      ('ssis001', 'fanza', 'SSIS-001', 'https://video.dmm.co.jp/av/content/?id=ssis001', 'user', 95, '神作。伝説。', ARRAY['コスプレ', '3P以上']),
-      ('12345', 'fantia', 'Fantia 12345', 'https://fantia.jp/posts/12345', 'user', 80, '差分が多くて良い', ARRAY['地雷系', 'コスプレ']),
-      ('midv002', 'fanza', 'MIDV-002', 'https://video.dmm.co.jp/av/content/?id=midv002', 'user', 15, '期待外れ', ARRAY['熟女']),
-      ('ssis001', 'fanza', 'SSIS-001', 'https://video.dmm.co.jp/av/content/?id=ssis001', 'user', 100, '抜ける', ARRAY['SM', 'レイプ'])
+      ('ssis001', 'fanza', 'SSIS-001', 'https://video.dmm.co.jp/av/content/?id=ssis001', ARRAY['架空女優A'], 'user', 95, '神作。伝説。', ARRAY['コスプレ', '3P以上']),
+      ('12345', 'fantia', 'Fantia 12345', 'https://fantia.jp/posts/12345', ARRAY['Fantia Creator'], 'user', 80, '差分が多くて良い', ARRAY['地雷系', 'コスプレ']),
+      ('midv002', 'fanza', 'MIDV-002', 'https://video.dmm.co.jp/av/content/?id=midv002', ARRAY['架空女優B'], 'user', 15, '期待外れ', ARRAY['熟女']),
+      ('ssis001', 'fanza', 'SSIS-001', 'https://video.dmm.co.jp/av/content/?id=ssis001', ARRAY['架空女優A'], 'user', 100, '抜ける', ARRAY['SM', 'レイプ'])
     `;
+  }
+}
+
+export async function saveOverallComment(input) {
+  try {
+    await initDatabase();
+    const productId = String(input.productId ?? "").trim().toLowerCase();
+    const platform = String(input.platform ?? "").trim().toLowerCase();
+    const overallComment = String(input.comment ?? "").trim();
+
+    if (!productId || !(platform === "fanza" || platform === "fantia")) {
+      return { ok: false, message: "作品指定が不正です。" };
+    }
+
+    await sql`
+      INSERT INTO product_notes (product_id, platform, overall_comment, updated_at)
+      VALUES (${productId}, ${platform}, ${overallComment || null}, NOW())
+      ON CONFLICT (product_id, platform)
+      DO UPDATE SET overall_comment = EXCLUDED.overall_comment, updated_at = NOW()
+    `;
+
+    revalidatePath(`/title/${platform}/${productId}`);
+    revalidatePath("/");
+    revalidatePath("/search");
+    return { ok: true, message: "全体コメントを保存しました。" };
+  } catch {
+    return { ok: false, message: dbErrorMessage() };
   }
 }
 
@@ -140,7 +320,7 @@ export async function getProductPageData(platform, productId) {
     `;
 
     const reviewsResult = await sql`
-      SELECT id, product_id, platform, product_name, source_url, author, score, comment, tags, created_at
+      SELECT id, product_id, platform, product_name, source_url, actress_names, author, score, comment, tags, created_at
       FROM reviews
       WHERE product_id = ${productId} AND platform = ${platform}
       ORDER BY created_at DESC, id DESC
@@ -166,13 +346,24 @@ export async function getProductPageData(platform, productId) {
       GROUP BY bucket
     `;
 
-    const sourceUrls = Array.from(
-      new Set(
-        reviewsResult.rows
-          .map((r) => r.source_url)
-          .filter((u) => Boolean(u))
-      )
-    );
+    const noteResult = await sql`
+      SELECT overall_comment
+      FROM product_notes
+      WHERE product_id = ${productId} AND platform = ${platform}
+      LIMIT 1
+    `;
+
+    const sourceUrls = Array.from(new Set(reviewsResult.rows.map((r) => r.source_url).filter(Boolean)));
+
+    let actressNames = [];
+    for (const row of reviewsResult.rows) {
+      if (Array.isArray(row.actress_names)) actressNames.push(...row.actress_names);
+    }
+    actressNames = normalizeNameList(actressNames);
+
+    if (actressNames.length === 0) {
+      actressNames = await resolveActressNames(productId, platform);
+    }
 
     const summary = summaryResult.rows[0] ?? {};
     return {
@@ -183,6 +374,8 @@ export async function getProductPageData(platform, productId) {
       productName: summary.product_name ?? productId,
       canonicalUrl: canonicalUrl(platform, productId),
       sourceUrls,
+      actressNames,
+      overallComment: noteResult.rows[0]?.overall_comment ?? "",
       imageUrl: imageUrl(platform, productId),
       summary: {
         average: toNumberOrNull(summary.average),
@@ -201,6 +394,8 @@ export async function getProductPageData(platform, productId) {
       productName: productId,
       canonicalUrl: canonicalUrl(platform, productId),
       sourceUrls: [],
+      actressNames: [],
+      overallComment: "",
       imageUrl: imageUrl(platform, productId),
       summary: { average: null, median: null, total: 0 },
       distribution: formatDistributionRows([]),
@@ -348,9 +543,12 @@ export async function submitReview(input) {
     const cleanTags = Array.from(new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean)));
     const source = String(input.url ?? "").trim() || canonicalUrl(parsed.platform, parsed.productId);
 
+    let actressNames = [];
+    if (source) actressNames = await fetchActressNamesFromUrl(source, parsed.platform);
+
     await sql`
-      INSERT INTO reviews (product_id, platform, product_name, source_url, author, score, comment, tags)
-      VALUES (${parsed.productId}, ${parsed.platform}, ${cleanName}, ${source}, 'user', ${score}, ${cleanComment}, ${cleanTags})
+      INSERT INTO reviews (product_id, platform, product_name, source_url, actress_names, author, score, comment, tags)
+      VALUES (${parsed.productId}, ${parsed.platform}, ${cleanName}, ${source}, ${actressNames}, 'user', ${score}, ${cleanComment}, ${cleanTags})
     `;
 
     revalidatePath("/");
@@ -374,43 +572,75 @@ export async function postRandomBotReview() {
       WHERE author = 'bot'
         AND created_at >= date_trunc('hour', NOW())
     `;
-    const count = Number(already.rows[0]?.count ?? 0);
-    if (count > 0) {
+    if (Number(already.rows[0]?.count ?? 0) > 0) {
       return { ok: true, skipped: true, message: "already posted this hour" };
     }
 
-    const fanzaPool = ["ssis001", "midv002", "sora00368", "ipx001", "jul001"];
-    const fantiaPool = ["12345", "98765", "774411", "556677"];
-    const tagsPool = ["3P以上", "コスプレ", "SM", "熟女", "レイプ", "地雷系", "巨乳", "素人", "企画", "ハメ撮り"];
-    const comments = [
-      "BOT: 構成が良くて最後まで見やすい。",
-      "BOT: 刺さる要素は強いが好みが分かれる。",
-      "BOT: 期待値より上。タグ相性が高い。",
-      "BOT: 展開は速いが見どころは多い。",
-      "BOT: 作風が安定していて再視聴向き。",
+    const candidates = [
+      { platform: "fanza", productId: "ssis001" },
+      { platform: "fanza", productId: "midv002" },
+      { platform: "fanza", productId: "sora00368" },
+      { platform: "fanza", productId: "ipx001" },
+      { platform: "fanza", productId: "jul001" },
+      { platform: "fantia", productId: "12345" },
+      { platform: "fantia", productId: "98765" },
+      { platform: "fantia", productId: "774411" },
+      { platform: "fantia", productId: "556677" },
     ];
 
-    const platform = Math.random() < 0.5 ? "fanza" : "fantia";
-    const productId = platform === "fanza"
-      ? fanzaPool[Math.floor(Math.random() * fanzaPool.length)]
-      : fantiaPool[Math.floor(Math.random() * fantiaPool.length)];
+    const available = [];
+    for (const c of candidates) {
+      const hasComment = await sql`
+        SELECT COUNT(*)::int AS count
+        FROM reviews
+        WHERE product_id = ${c.productId}
+          AND platform = ${c.platform}
+          AND comment IS NOT NULL
+          AND length(trim(comment)) > 0
+      `;
+      if (Number(hasComment.rows[0]?.count ?? 0) === 0) available.push(c);
+    }
+
+    if (available.length === 0) {
+      return { ok: true, skipped: true, message: "all candidate titles already have comments" };
+    }
+
+    const picked = available[Math.floor(Math.random() * available.length)];
+    const tagsPool = ["3P以上", "コスプレ", "SM", "熟女", "レイプ", "地雷系", "巨乳", "素人", "企画", "ハメ撮り"];
+    const comments = [
+      "BOT: 展開が速く、テーマが明確。",
+      "BOT: 好みは分かれるが見どころは多い。",
+      "BOT: 導入から終盤までまとまりがある。",
+      "BOT: 画づくりと要素のバランスが良い。",
+      "BOT: 初見でも入りやすい構成。",
+    ];
 
     const score = Math.floor(Math.random() * 101);
     const comment = comments[Math.floor(Math.random() * comments.length)];
-    const shuffled = [...tagsPool].sort(() => Math.random() - 0.5);
-    const tags = shuffled.slice(0, 2 + Math.floor(Math.random() * 3));
-    const source = canonicalUrl(platform, productId);
+    const tags = [...tagsPool].sort(() => Math.random() - 0.5).slice(0, 2 + Math.floor(Math.random() * 3));
+    const source = canonicalUrl(picked.platform, picked.productId);
+    const actressNames = await fetchActressNamesFromUrl(source, picked.platform);
 
     await sql`
-      INSERT INTO reviews (product_id, platform, product_name, source_url, author, score, comment, tags)
-      VALUES (${productId}, ${platform}, ${platform === "fanza" ? productId.toUpperCase() : `Fantia ${productId}`}, ${source}, 'bot', ${score}, ${comment}, ${tags})
+      INSERT INTO reviews (product_id, platform, product_name, source_url, actress_names, author, score, comment, tags)
+      VALUES (
+        ${picked.productId},
+        ${picked.platform},
+        ${picked.platform === "fanza" ? picked.productId.toUpperCase() : `Fantia ${picked.productId}`},
+        ${source},
+        ${actressNames},
+        'bot',
+        ${score},
+        ${comment},
+        ${tags}
+      )
     `;
 
     revalidatePath("/");
     revalidatePath("/search");
-    revalidatePath(`/title/${platform}/${productId}`);
+    revalidatePath(`/title/${picked.platform}/${picked.productId}`);
 
-    return { ok: true, skipped: false, platform, productId, score };
+    return { ok: true, skipped: false, platform: picked.platform, productId: picked.productId, score };
   } catch {
     return { ok: false, skipped: false, message: dbErrorMessage() };
   }
