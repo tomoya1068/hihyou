@@ -21,7 +21,7 @@ function toUrlFromPlatformId(text) {
 export default function SearchPage() {
   const params = useSearchParams();
   const [query, setQuery] = useState(params.get("q") ?? "");
-  const [result, setResult] = useState({ query: "", parsed: null, items: [], selected: null });
+  const [result, setResult] = useState({ query: "", parsed: null, items: [], selected: null, error: null });
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -58,6 +58,7 @@ export default function SearchPage() {
       </section>
 
       {isPending && <p className="text-sm text-slate-400">検索中...</p>}
+      {result.error && <p className="panel p-4 text-sm text-rose-300">{result.error}</p>}
 
       {result.selected && (
         <section className="panel p-6">

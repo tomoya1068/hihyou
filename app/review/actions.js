@@ -94,38 +94,50 @@ export async function initDatabase() {
 }
 
 export async function getReviewsByTarget(productId, platform) {
-  await initDatabase();
+  try {
+    await initDatabase();
 
-  const reviewsResult = await sql`
-    SELECT id, product_id, platform, product_name, score, comment, tags, created_at
-    FROM reviews
-    WHERE product_id = ${productId} AND platform = ${platform}
-    ORDER BY created_at DESC, id DESC
-  `;
+    const reviewsResult = await sql`
+      SELECT id, product_id, platform, product_name, score, comment, tags, created_at
+      FROM reviews
+      WHERE product_id = ${productId} AND platform = ${platform}
+      ORDER BY created_at DESC, id DESC
+    `;
 
-  const summaryResult = await sql`
-    SELECT
-      COALESCE(MAX(product_name), ${productId}) AS product_name,
-      ROUND(AVG(score)::numeric, 2) AS average,
-      percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
-      COUNT(*)::int AS total
-    FROM reviews
-    WHERE product_id = ${productId} AND platform = ${platform}
-  `;
+    const summaryResult = await sql`
+      SELECT
+        COALESCE(MAX(product_name), ${productId}) AS product_name,
+        ROUND(AVG(score)::numeric, 2) AS average,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
+        COUNT(*)::int AS total
+      FROM reviews
+      WHERE product_id = ${productId} AND platform = ${platform}
+    `;
 
-  const summaryRow = summaryResult.rows[0] ?? {};
+    const summaryRow = summaryResult.rows[0] ?? {};
 
-  return {
-    parsed: { productId, platform },
-    productName: summaryRow.product_name ?? productId,
-    imageUrl: imageUrl(platform, productId),
-    reviews: reviewsResult.rows,
-    summary: {
-      average: toNumberOrNull(summaryRow.average),
-      median: toNumberOrNull(summaryRow.median),
-      total: Number(summaryRow.total ?? 0),
-    },
-  };
+    return {
+      parsed: { productId, platform },
+      productName: summaryRow.product_name ?? productId,
+      imageUrl: imageUrl(platform, productId),
+      reviews: reviewsResult.rows,
+      summary: {
+        average: toNumberOrNull(summaryRow.average),
+        median: toNumberOrNull(summaryRow.median),
+        total: Number(summaryRow.total ?? 0),
+      },
+      error: null,
+    };
+  } catch {
+    return {
+      parsed: { productId, platform },
+      productName: productId,
+      imageUrl: imageUrl(platform, productId),
+      reviews: [],
+      summary: { average: null, median: null, total: 0 },
+      error: "レビュー取得に失敗しました。DB設定を確認してください。",
+    };
+  }
 }
 
 export async function getReviewsByUrl(url) {
@@ -138,6 +150,7 @@ export async function getReviewsByUrl(url) {
         imageUrl: null,
         reviews: [],
         summary: { average: null, median: null, total: 0 },
+        error: null,
       };
     }
 
@@ -149,101 +162,110 @@ export async function getReviewsByUrl(url) {
       imageUrl: null,
       reviews: [],
       summary: { average: null, median: null, total: 0 },
+      error: "検索に失敗しました。",
     };
   }
 }
 
 export async function searchProducts(query) {
-  await initDatabase();
+  try {
+    await initDatabase();
 
-  const q = String(query ?? "").trim();
-  if (!q) {
-    return { query: "", parsed: null, items: [], selected: null };
+    const q = String(query ?? "").trim();
+    if (!q) {
+      return { query: "", parsed: null, items: [], selected: null, error: null };
+    }
+
+    const parsed = parseReviewUrl(q);
+    if (parsed) {
+      const selected = await getReviewsByTarget(parsed.productId, parsed.platform);
+      return { query: q, parsed, items: [], selected, error: selected.error ?? null };
+    }
+
+    const like = `%${q}%`;
+    const result = await sql`
+      SELECT
+        product_id,
+        platform,
+        COALESCE(MAX(product_name), product_id) AS product_name,
+        ROUND(AVG(score)::numeric, 2) AS average,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
+        COUNT(*)::int AS total,
+        MAX(created_at) AS last_created_at
+      FROM reviews
+      WHERE product_id ILIKE ${like}
+        OR COALESCE(product_name, '') ILIKE ${like}
+        OR comment ILIKE ${like}
+        OR EXISTS (
+          SELECT 1 FROM unnest(COALESCE(tags, ARRAY[]::text[])) AS t
+          WHERE t ILIKE ${like}
+        )
+      GROUP BY product_id, platform
+      ORDER BY total DESC, last_created_at DESC
+      LIMIT 24
+    `;
+
+    const items = result.rows.map((row) => ({
+      productId: row.product_id,
+      platform: row.platform,
+      productName: row.product_name,
+      average: toNumberOrNull(row.average),
+      median: toNumberOrNull(row.median),
+      total: Number(row.total ?? 0),
+      imageUrl: imageUrl(row.platform, row.product_id),
+    }));
+
+    return { query: q, parsed: null, items, selected: null, error: null };
+  } catch {
+    return { query: String(query ?? ""), parsed: null, items: [], selected: null, error: "検索に失敗しました。DB設定を確認してください。" };
   }
-
-  const parsed = parseReviewUrl(q);
-  if (parsed) {
-    const selected = await getReviewsByTarget(parsed.productId, parsed.platform);
-    return { query: q, parsed, items: [], selected };
-  }
-
-  const like = `%${q}%`;
-  const result = await sql`
-    SELECT
-      product_id,
-      platform,
-      COALESCE(MAX(product_name), product_id) AS product_name,
-      ROUND(AVG(score)::numeric, 2) AS average,
-      percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
-      COUNT(*)::int AS total,
-      MAX(created_at) AS last_created_at
-    FROM reviews
-    WHERE product_id ILIKE ${like}
-      OR COALESCE(product_name, '') ILIKE ${like}
-      OR comment ILIKE ${like}
-      OR EXISTS (
-        SELECT 1 FROM unnest(COALESCE(tags, ARRAY[]::text[])) AS t
-        WHERE t ILIKE ${like}
-      )
-    GROUP BY product_id, platform
-    ORDER BY total DESC, last_created_at DESC
-    LIMIT 24
-  `;
-
-  const items = result.rows.map((row) => ({
-    productId: row.product_id,
-    platform: row.platform,
-    productName: row.product_name,
-    average: toNumberOrNull(row.average),
-    median: toNumberOrNull(row.median),
-    total: Number(row.total ?? 0),
-    imageUrl: imageUrl(row.platform, row.product_id),
-  }));
-
-  return { query: q, parsed: null, items, selected: null };
 }
 
 export async function getHomeData() {
-  await initDatabase();
+  try {
+    await initDatabase();
 
-  const latestResult = await sql`
-    SELECT id, product_id, platform, product_name, score, comment, tags, created_at
-    FROM reviews
-    ORDER BY created_at DESC, id DESC
-    LIMIT 12
-  `;
+    const latestResult = await sql`
+      SELECT id, product_id, platform, product_name, score, comment, tags, created_at
+      FROM reviews
+      ORDER BY created_at DESC, id DESC
+      LIMIT 12
+    `;
 
-  const productsResult = await sql`
-    SELECT
-      product_id,
-      platform,
-      COALESCE(MAX(product_name), product_id) AS product_name,
-      ROUND(AVG(score)::numeric, 2) AS average,
-      percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
-      COUNT(*)::int AS total,
-      MAX(created_at) AS last_created_at
-    FROM reviews
-    GROUP BY product_id, platform
-    ORDER BY total DESC, average DESC, last_created_at DESC
-    LIMIT 8
-  `;
+    const productsResult = await sql`
+      SELECT
+        product_id,
+        platform,
+        COALESCE(MAX(product_name), product_id) AS product_name,
+        ROUND(AVG(score)::numeric, 2) AS average,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
+        COUNT(*)::int AS total,
+        MAX(created_at) AS last_created_at
+      FROM reviews
+      GROUP BY product_id, platform
+      ORDER BY total DESC, average DESC, last_created_at DESC
+      LIMIT 8
+    `;
 
-  const latestReviews = latestResult.rows.map((row) => ({
-    ...row,
-    imageUrl: imageUrl(row.platform, row.product_id),
-  }));
+    const latestReviews = latestResult.rows.map((row) => ({
+      ...row,
+      imageUrl: imageUrl(row.platform, row.product_id),
+    }));
 
-  const hotProducts = productsResult.rows.map((row) => ({
-    productId: row.product_id,
-    platform: row.platform,
-    productName: row.product_name,
-    average: toNumberOrNull(row.average),
-    median: toNumberOrNull(row.median),
-    total: Number(row.total ?? 0),
-    imageUrl: imageUrl(row.platform, row.product_id),
-  }));
+    const hotProducts = productsResult.rows.map((row) => ({
+      productId: row.product_id,
+      platform: row.platform,
+      productName: row.product_name,
+      average: toNumberOrNull(row.average),
+      median: toNumberOrNull(row.median),
+      total: Number(row.total ?? 0),
+      imageUrl: imageUrl(row.platform, row.product_id),
+    }));
 
-  return { latestReviews, hotProducts };
+    return { latestReviews, hotProducts, error: null };
+  } catch {
+    return { latestReviews: [], hotProducts: [], error: "ホームデータの取得に失敗しました。DB設定を確認してください。" };
+  }
 }
 
 export async function submitReview(input) {

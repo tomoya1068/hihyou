@@ -10,7 +10,7 @@ function formatNumber(value) {
 }
 
 export default function HomePage() {
-  const [data, setData] = useState({ latestReviews: [], hotProducts: [] });
+  const [data, setData] = useState({ latestReviews: [], hotProducts: [], error: null });
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -34,6 +34,7 @@ export default function HomePage() {
           <Link href="/review/new" className="btn-gold">批評を投稿する</Link>
         </div>
       </section>
+      {data.error && <p className="panel p-4 text-sm text-rose-300">{data.error}</p>}
 
       <section className="panel p-6">
         <div className="mb-4 flex items-center justify-between">
