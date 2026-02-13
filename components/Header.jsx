@@ -1,23 +1,28 @@
-﻿import Link from "next/link";
-import { Blocks } from "lucide-react";
+import Link from "next/link";
+
+const navItems = [
+  { href: "/", label: "ホーム" },
+  { href: "/search", label: "検索" },
+  { href: "/review/new", label: "投稿" },
+];
 
 export default function Header() {
   return (
-    <header className="sticky top-0 z-20 border-b border-sky-100 bg-white/90 backdrop-blur">
+    <header className="sticky top-0 z-20 border-b border-slate-700/70 bg-slate-950/85 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 md:px-6">
-        <Link href="/" className="flex items-center gap-2 font-semibold">
-          <span className="rounded-lg bg-teal-600 p-1.5 text-white">
-            <Blocks className="h-4 w-4" />
-          </span>
-          Tool Portal
+        <Link href="/" className="text-sm font-bold tracking-[0.2em] text-amber-300 md:text-base">
+          AV・FANTIA 批評空間
         </Link>
-        <nav>
-          <Link
-            href="/review"
-            className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-          >
-            AV・Fantia批評空間
-          </Link>
+        <nav className="flex items-center gap-2">
+          {navItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="rounded-md border border-slate-700/80 bg-slate-900/70 px-3 py-1.5 text-sm text-slate-200 transition hover:border-cyan-300/50 hover:text-cyan-200"
+            >
+              {item.label}
+            </Link>
+          ))}
         </nav>
       </div>
     </header>

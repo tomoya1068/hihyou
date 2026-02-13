@@ -1,19 +1,20 @@
-﻿import "@/app/globals.css";
+import "@/app/globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
 export const metadata = {
-  title: "Tool Portal",
-  description: "HTML/JSツールをまとめた収益化対応ポータル"
+  title: "AV・Fantia批評空間",
+  description: "作品レビュー検索・投稿プラットフォーム",
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="ja">
-      <body className="text-slate-900 antialiased">
-        <div className="flex min-h-screen flex-col">
+      <body className="app-body antialiased">
+        <div className="app-backdrop" />
+        <div className="relative z-10 flex min-h-screen flex-col">
           <Header />
-          <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-10 md:px-6">{children}</main>
+          <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 md:px-6">{children}</main>
           <Footer />
         </div>
       </body>

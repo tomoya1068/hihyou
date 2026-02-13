@@ -1,15 +1,85 @@
-﻿@tailwind base;
+@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --bg-0: #06080f;
+  --bg-1: #0a1020;
+  --bg-2: #121d33;
+  --line: rgba(148, 163, 184, 0.25);
+  --gold: #f4c86b;
+  --cyan: #67d2ea;
+}
+
 body {
   margin: 0;
-  min-height: 100vh;
-  background: linear-gradient(180deg, #f8fbff 0%, #eefaf8 100%);
-  color: #0f172a;
+}
+
+.app-body {
+  color: #e2e8f0;
+  background: radial-gradient(circle at 20% -10%, rgba(103, 210, 234, 0.12) 0%, transparent 35%),
+    radial-gradient(circle at 80% 0%, rgba(244, 200, 107, 0.12) 0%, transparent 40%),
+    linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 45%, var(--bg-0) 100%);
+}
+
+.app-backdrop {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(circle at center, black 35%, transparent 85%);
 }
 
 a {
   color: inherit;
   text-decoration: none;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  background: rgba(2, 6, 23, 0.72);
+  border-radius: 0.9rem;
+  box-shadow: 0 10px 30px rgba(2, 6, 23, 0.45);
+  backdrop-filter: blur(6px);
+}
+
+.panel-gold {
+  border: 1px solid rgba(244, 200, 107, 0.35);
+  background: linear-gradient(160deg, rgba(28, 23, 15, 0.8) 0%, rgba(2, 6, 23, 0.75) 75%);
+  border-radius: 0.9rem;
+  box-shadow: 0 10px 35px rgba(244, 200, 107, 0.12);
+}
+
+.btn-cyan,
+.btn-gold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.55rem;
+  padding: 0.55rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.btn-cyan {
+  border: 1px solid rgba(103, 210, 234, 0.65);
+  background: linear-gradient(90deg, rgba(18, 85, 112, 0.85), rgba(25, 139, 167, 0.9));
+  color: #e6fbff;
+}
+
+.btn-cyan:hover {
+  filter: brightness(1.08);
+}
+
+.btn-gold {
+  border: 1px solid rgba(244, 200, 107, 0.7);
+  background: linear-gradient(90deg, rgba(194, 142, 30, 0.9), rgba(244, 200, 107, 0.95));
+  color: #1e293b;
+}
+
+.btn-gold:hover {
+  filter: brightness(1.08);
 }
