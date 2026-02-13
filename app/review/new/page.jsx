@@ -3,18 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { submitReview } from "../actions";
 
-const TAG_OPTIONS = [
-  "3P以上",
-  "コスプレ",
-  "SM",
-  "熟女",
-  "レイプ",
-  "地雷系",
-  "巨乳",
-  "素人",
-  "企画",
-  "ハメ撮り",
-];
+const TAG_OPTIONS = ["3P以上", "コスプレ", "SM", "熟女", "レイプ", "地雷系", "巨乳", "素人", "企画", "ハメ撮り"];
 
 function parseReviewUrl(url) {
   const fanzaCid = /[?&]cid=([a-z0-9]+)/i.exec(url);
@@ -61,7 +50,7 @@ export default function NewReviewPage() {
     <div className="space-y-6">
       <section className="panel-gold p-6">
         <h1 className="text-2xl font-bold text-amber-200">レビュー投稿</h1>
-        <p className="mt-2 text-sm text-slate-300">投稿ページは検索ページと分離しています。URLを貼ると作品IDを自動判定します。</p>
+        <p className="mt-2 text-sm text-slate-300">URLを貼ると作品IDを自動判定します。投稿後は作品ページに反映されます。</p>
       </section>
 
       <section className="panel p-6">
@@ -131,11 +120,7 @@ export default function NewReviewPage() {
             />
           </div>
 
-          <button
-            type="submit"
-            disabled={isPending || !parsed}
-            className="btn-gold w-full disabled:cursor-not-allowed disabled:opacity-50"
-          >
+          <button type="submit" disabled={isPending || !parsed} className="btn-gold w-full disabled:cursor-not-allowed disabled:opacity-50">
             {isPending ? "処理中..." : "批評を投稿する"}
           </button>
           {status && <p className="text-sm text-amber-200">{status}</p>}

@@ -26,14 +26,14 @@ export default function HomePage() {
         <p className="text-xs uppercase tracking-[0.35em] text-amber-300/90">AV / Fantia Review Nexus</p>
         <h1 className="mt-3 text-3xl font-bold tracking-wide text-amber-200 md:text-4xl">AV・Fantia批評空間</h1>
         <p className="mt-3 max-w-3xl text-sm text-slate-300 md:text-base">
-          作品単位でレビューを集約し、平均点・中央値・新着感想を横断して確認できます。
-          URL解析は FANZA の <code>cid=...</code> / <code>id=...</code> と Fantia の <code>/posts/...</code> に対応しています。
+          レビューを押すと作品ページへ移動し、点数分布・URL・投稿一覧を確認できます。
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
           <Link href="/search" className="btn-cyan">作品を検索する</Link>
           <Link href="/review/new" className="btn-gold">批評を投稿する</Link>
         </div>
       </section>
+
       {data.error && <p className="panel p-4 text-sm text-rose-300">{data.error}</p>}
 
       <section className="panel p-6">
@@ -45,7 +45,7 @@ export default function HomePage() {
           {data.hotProducts.map((p) => (
             <Link
               key={`${p.platform}-${p.productId}`}
-              href={`/search?q=${encodeURIComponent(`${p.platform}:${p.productId}`)}`}
+              href={`/title/${p.platform}/${p.productId}`}
               className="rounded-xl border border-slate-700/80 bg-slate-950/60 p-4 transition hover:border-amber-300/50"
             >
               <p className="text-xs uppercase tracking-wider text-cyan-300">{p.platform}</p>
@@ -74,7 +74,11 @@ export default function HomePage() {
         <h2 className="mb-4 text-xl font-semibold text-amber-200">新着レビュー</h2>
         <div className="space-y-3">
           {data.latestReviews.map((review) => (
-            <article key={review.id} className="rounded-lg border border-slate-700/80 bg-slate-950/60 p-4">
+            <Link
+              key={review.id}
+              href={`/title/${review.platform}/${review.product_id}`}
+              className="block rounded-lg border border-slate-700/80 bg-slate-950/60 p-4 transition hover:border-cyan-300/50"
+            >
               <div className="flex items-center justify-between">
                 <p className="text-xs uppercase tracking-wider text-cyan-300">
                   {review.platform} / {review.product_id}
@@ -84,7 +88,7 @@ export default function HomePage() {
               <p className="mt-1 text-sm font-semibold text-slate-100">{review.product_name || review.product_id}</p>
               <p className="mt-2 text-2xl font-bold text-amber-200">{review.score} 点</p>
               {review.comment && <p className="mt-2 text-sm text-slate-200">{review.comment}</p>}
-            </article>
+            </Link>
           ))}
         </div>
       </section>
