@@ -3,6 +3,22 @@
 import { revalidatePath } from "next/cache";
 import { sql } from "@vercel/postgres";
 
+const fallbackUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.NEON_DATABASE_URL;
+if (!process.env.POSTGRES_URL && fallbackUrl) {
+  process.env.POSTGRES_URL = fallbackUrl;
+}
+if (!process.env.POSTGRES_URL_NON_POOLING && fallbackUrl) {
+  process.env.POSTGRES_URL_NON_POOLING = fallbackUrl;
+}
+
+function dbErrorMessage() {
+  const hasAnyUrl = Boolean(process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.NEON_DATABASE_URL);
+  if (!hasAnyUrl) {
+    return "DB接続情報が未設定です。Vercel Environment Variables に POSTGRES_URL（または DATABASE_URL）を設定してください。";
+  }
+  return "DB接続に失敗しました。接続文字列またはDB権限を確認してください。";
+}
+
 function parseReviewUrl(raw) {
   if (!raw) return null;
   const text = String(raw).trim();
@@ -135,7 +151,7 @@ export async function getReviewsByTarget(productId, platform) {
       imageUrl: imageUrl(platform, productId),
       reviews: [],
       summary: { average: null, median: null, total: 0 },
-      error: "レビュー取得に失敗しました。DB設定を確認してください。",
+      error: dbErrorMessage(),
     };
   }
 }
@@ -217,7 +233,7 @@ export async function searchProducts(query) {
 
     return { query: q, parsed: null, items, selected: null, error: null };
   } catch {
-    return { query: String(query ?? ""), parsed: null, items: [], selected: null, error: "検索に失敗しました。DB設定を確認してください。" };
+    return { query: String(query ?? ""), parsed: null, items: [], selected: null, error: dbErrorMessage() };
   }
 }
 
@@ -264,7 +280,7 @@ export async function getHomeData() {
 
     return { latestReviews, hotProducts, error: null };
   } catch {
-    return { latestReviews: [], hotProducts: [], error: "ホームデータの取得に失敗しました。DB設定を確認してください。" };
+    return { latestReviews: [], hotProducts: [], error: dbErrorMessage() };
   }
 }
 
@@ -297,7 +313,7 @@ export async function submitReview(input) {
   } catch {
     return {
       ok: false,
-      message: "DB接続に失敗しました。.env.local の Postgres 設定を確認してください。",
+      message: dbErrorMessage(),
       parsed: null,
     };
   }
