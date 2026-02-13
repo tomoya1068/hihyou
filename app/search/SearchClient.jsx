@@ -5,6 +5,8 @@ import { useEffect, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { searchProducts } from "../review/actions";
 
+const TAG_OPTIONS = ["3P以上", "コスプレ", "SM", "熟女", "レイプ", "地雷系", "巨乳", "素人", "企画", "ハメ撮り"];
+
 function formatNumber(value) {
   if (value === null || Number.isNaN(value)) return "-";
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
@@ -22,6 +24,7 @@ function toUrlFromPlatformId(text) {
 export default function SearchPage() {
   const params = useSearchParams();
   const [query, setQuery] = useState(params.get("q") ?? "");
+  const [selectedTags, setSelectedTags] = useState([]);
   const [result, setResult] = useState({ query: "", parsed: null, items: [], selected: null, error: null });
   const [isPending, startTransition] = useTransition();
 
@@ -29,28 +32,50 @@ export default function SearchPage() {
     const initial = params.get("q") ?? "";
     if (!initial) return;
     startTransition(async () => {
-      const r = await searchProducts(toUrlFromPlatformId(initial));
+      const r = await searchProducts(toUrlFromPlatformId(initial), selectedTags);
       setResult(r);
     });
   }, [params]);
 
-  async function onSubmit(e) {
-    e.preventDefault();
+  async function runSearch(nextQuery = query, nextTags = selectedTags) {
     startTransition(async () => {
-      const r = await searchProducts(toUrlFromPlatformId(query));
+      const r = await searchProducts(toUrlFromPlatformId(nextQuery), nextTags);
       setResult(r);
     });
+  }
+
+  function toggleTag(tag) {
+    const next = selectedTags.includes(tag) ? selectedTags.filter((t) => t !== tag) : [...selectedTags, tag];
+    setSelectedTags(next);
+    runSearch(query, next);
+  }
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    runSearch(query, selectedTags);
   }
 
   return (
     <div className="space-y-6">
       <section className="panel-gold p-6">
         <h1 className="text-2xl font-bold text-amber-200">作品検索</h1>
-        <p className="mt-2 text-sm text-slate-300">URL または作品ID/名前で検索できます（例: sora00368, fanza:ssis001）。</p>
+        <p className="mt-2 text-sm text-slate-300">URL / 作品ID / タイトル + タグで絞り込み。</p>
         <form onSubmit={onSubmit} className="mt-4 flex flex-col gap-3 md:flex-row">
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="https://video.dmm.co.jp/av/content/?id=sora00368" className="w-full rounded-md border border-amber-400/30 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-amber-300" />
           <button type="submit" className="btn-cyan md:w-40">検索</button>
         </form>
+        <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-5">
+          {TAG_OPTIONS.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => toggleTag(tag)}
+              className={`rounded border px-2 py-1 text-xs ${selectedTags.includes(tag) ? "border-cyan-300 bg-cyan-500/20 text-cyan-200" : "border-slate-700 bg-slate-950/60 text-slate-300"}`}
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
       </section>
 
       {isPending && <p className="text-sm text-slate-400">searching...</p>}
@@ -68,7 +93,7 @@ export default function SearchPage() {
         </section>
       )}
 
-      {!result.selected && result.query && (
+      {!result.selected && (
         <section className="panel p-6">
           <h2 className="mb-4 text-lg font-semibold text-cyan-200">候補</h2>
           {result.items.length === 0 && <p className="text-sm text-slate-400">結果なし</p>}
@@ -79,6 +104,11 @@ export default function SearchPage() {
                 <p className="mt-1 truncate text-sm font-semibold text-slate-100">{item.productName}</p>
                 <p className="truncate text-xs text-slate-400">{item.productId}</p>
                 <p className="mt-2 text-xs text-slate-400">平均 {formatNumber(item.average)} / 中央値 {formatNumber(item.median)} / {item.total}件</p>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {(item.tags ?? []).slice(0, 5).map((tag) => (
+                    <span key={`${item.productId}-${tag}`} className="rounded border border-amber-400/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-200">#{tag}</span>
+                  ))}
+                </div>
               </Link>
             ))}
           </div>

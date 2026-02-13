@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { getProductPageData, saveOverallComment } from "@/app/review/actions";
+import { getProductPageData, reactToReview, saveOverallComment } from "@/app/review/actions";
 
 function formatNumber(value) {
   if (value === null || Number.isNaN(value)) return "-";
@@ -48,6 +48,23 @@ export default function TitleDetailPage() {
     });
   }
 
+  async function onReact(reviewId, reaction) {
+    const result = await reactToReview({ reviewId, reaction });
+    if (!result.ok) return;
+
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        reviews: prev.reviews.map((r) => {
+          if (r.id !== reviewId) return r;
+          if (reaction === "like") return { ...r, likes_count: Number(r.likes_count || 0) + 1 };
+          return { ...r, helpful_count: Number(r.helpful_count || 0) + 1 };
+        }),
+      };
+    });
+  }
+
   if (!platform || !productId) return <div className="panel p-6 text-sm text-rose-300">invalid product params.</div>;
   if (isPending && !data) return <div className="panel p-6 text-sm text-slate-300">loading...</div>;
   if (!data) return <div className="panel p-6 text-sm text-rose-300">failed to load.</div>;
@@ -63,7 +80,7 @@ export default function TitleDetailPage() {
           <div className="rounded-md border border-slate-700/80 bg-slate-950/60 p-3"><p className="text-slate-500">レビュー数</p><p className="text-xl font-semibold text-amber-200">{data.summary.total}</p></div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <a href={data.canonicalUrl} target="_blank" rel="noreferrer" className="btn-cyan">元サイトを開く</a>
+          <a href={data.canonicalUrl} target="_blank" rel="noreferrer" className="btn-cyan">元サイト</a>
           <Link href="/review/new" className="btn-gold">この作品に投稿</Link>
         </div>
       </section>
@@ -125,11 +142,11 @@ export default function TitleDetailPage() {
                 <p className="text-xs text-slate-400">{new Date(review.created_at).toLocaleString()} / {review.author}</p>
               </div>
               {review.comment && <p className="mt-2 text-sm text-slate-200">{review.comment}</p>}
-              {review.source_url && (
-                <p className="mt-2 text-xs">
-                  <a className="text-cyan-200 underline" href={review.source_url} target="_blank" rel="noreferrer">このレビューの元URLへ</a>
-                </p>
-              )}
+              {review.source_url && <p className="mt-2 text-xs"><a className="text-cyan-200 underline" href={review.source_url} target="_blank" rel="noreferrer">このレビューの元URLへ</a></p>}
+              <div className="mt-2 flex items-center gap-2 text-xs">
+                <button type="button" className="rounded border border-slate-700 px-2 py-1 text-slate-200" onClick={() => onReact(review.id, "like")}>いいね {review.likes_count ?? 0}</button>
+                <button type="button" className="rounded border border-slate-700 px-2 py-1 text-slate-200" onClick={() => onReact(review.id, "helpful")}>参考になった {review.helpful_count ?? 0}</button>
+              </div>
               <div className="mt-2 flex flex-wrap gap-2">
                 {(review.tags ?? []).map((tag) => (
                   <span key={`${review.id}-${tag}`} className="rounded-full border border-amber-400/30 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-200">#{tag}</span>

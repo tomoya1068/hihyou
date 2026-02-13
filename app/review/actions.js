@@ -7,6 +7,8 @@ const fallbackUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL || proc
 if (!process.env.POSTGRES_URL && fallbackUrl) process.env.POSTGRES_URL = fallbackUrl;
 if (!process.env.POSTGRES_URL_NON_POOLING && fallbackUrl) process.env.POSTGRES_URL_NON_POOLING = fallbackUrl;
 
+const TAG_OPTIONS = ["3P以上", "コスプレ", "SM", "熟女", "レイプ", "地雷系", "巨乳", "素人", "企画", "ハメ撮り"];
+
 function dbErrorMessage() {
   const hasAnyUrl = Boolean(process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.NEON_DATABASE_URL);
   if (!hasAnyUrl) return "DB connection settings are missing. Set POSTGRES_URL or DATABASE_URL.";
@@ -71,13 +73,13 @@ function formatDistributionRows(rows) {
   return bins.map((label) => ({ label, count: map.get(label) ?? 0 }));
 }
 
-function normalizeList(values, max = 10) {
-  const seen = new Set();
+function normalizeList(values, max = 12) {
   const out = [];
+  const seen = new Set();
   for (const v of values) {
     const s = String(v ?? "").trim();
     if (!s) continue;
-    if (s.length > 120) continue;
+    if (s.length > 160) continue;
     const key = s.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -118,7 +120,7 @@ function extractNamesFromJsonLd(html) {
         else if (performer) out.push(performer?.name || performer);
       }
     } catch {
-      // ignore
+      // ignore malformed block
     }
   }
   return normalizeList(out);
@@ -140,18 +142,37 @@ async function fetchPageMetadata(url) {
     const html = await res.text();
     const title = extractTitleFromHtml(html);
     const actressNames = extractNamesFromJsonLd(html);
-    return { title, actressNames };
+    return { title, actressNames, html };
   } catch {
-    return { title: null, actressNames: [] };
+    return { title: null, actressNames: [], html: "" };
   }
 }
 
 async function resolveProductMetadata(platform, productId, sourceCandidates) {
   for (const src of sourceCandidates) {
     const meta = await fetchPageMetadata(src);
-    if (meta.title || (meta.actressNames && meta.actressNames.length > 0)) return meta;
+    if (meta.title || meta.actressNames.length > 0) return meta;
   }
-  return { title: null, actressNames: [] };
+  return { title: null, actressNames: [], html: "" };
+}
+
+function parseFanzaLinks(html) {
+  const links = [];
+  const pattern = /<a[^>]+href=["']([^"']*\/av\/content\/\?id=([a-z0-9]+)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m;
+  while ((m = pattern.exec(html)) !== null) {
+    const href = m[1];
+    const productId = m[2]?.toLowerCase();
+    const text = m[3]?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    if (!productId) continue;
+    links.push({
+      productId,
+      sourceUrl: href.startsWith("http") ? href : `https://video.dmm.co.jp${href}`,
+      title: text || null,
+    });
+    if (links.length >= 30) break;
+  }
+  return links;
 }
 
 export async function initDatabase() {
@@ -167,6 +188,8 @@ export async function initDatabase() {
       score INTEGER NOT NULL CHECK (score >= 0 AND score <= 100),
       comment TEXT,
       tags TEXT[],
+      likes_count INTEGER NOT NULL DEFAULT 0,
+      helpful_count INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `;
@@ -181,14 +204,25 @@ export async function initDatabase() {
     )
   `;
 
+  await sql`
+    CREATE TABLE IF NOT EXISTS fanza_releases (
+      product_id VARCHAR(255) PRIMARY KEY,
+      title TEXT,
+      source_url TEXT,
+      image_url TEXT,
+      fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `;
+
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS product_name VARCHAR(255)`;
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS source_url TEXT`;
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS actress_names TEXT[]`;
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS author VARCHAR(32) DEFAULT 'user'`;
+  await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS likes_count INTEGER NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS helpful_count INTEGER NOT NULL DEFAULT 0`;
 
   const countResult = await sql`SELECT COUNT(*)::int AS count FROM reviews`;
   const count = Number(countResult.rows[0]?.count ?? 0);
-
   if (count === 0) {
     await sql`
       INSERT INTO reviews (product_id, platform, product_name, source_url, actress_names, author, score, comment, tags)
@@ -198,6 +232,27 @@ export async function initDatabase() {
       ('midv002', 'fanza', 'MIDV-002', 'https://video.dmm.co.jp/av/content/?id=midv002', ARRAY[]::text[], 'user', 15, '期待外れ', ARRAY['熟女']),
       ('ssis001', 'fanza', 'SSIS-001', 'https://video.dmm.co.jp/av/content/?id=ssis001', ARRAY[]::text[], 'user', 100, '抜ける', ARRAY['SM', 'レイプ'])
     `;
+  }
+}
+
+export async function reactToReview(input) {
+  try {
+    await initDatabase();
+    const id = Number(input?.reviewId);
+    const reaction = String(input?.reaction ?? "");
+    if (!Number.isInteger(id) || id <= 0) return { ok: false, message: "invalid review id" };
+
+    if (reaction === "like") {
+      await sql`UPDATE reviews SET likes_count = likes_count + 1 WHERE id = ${id}`;
+    } else if (reaction === "helpful") {
+      await sql`UPDATE reviews SET helpful_count = helpful_count + 1 WHERE id = ${id}`;
+    } else {
+      return { ok: false, message: "invalid reaction type" };
+    }
+
+    return { ok: true };
+  } catch {
+    return { ok: false, message: dbErrorMessage() };
   }
 }
 
@@ -226,6 +281,56 @@ export async function saveOverallComment(input) {
   }
 }
 
+export async function syncFanzaNewReleases() {
+  try {
+    await initDatabase();
+
+    const listingSources = [
+      "https://www.dmm.co.jp/digital/videoa/-/list/=/sort=release/",
+      "https://www.dmm.co.jp/digital/videoa/-/list/=/sort=ranking/",
+    ];
+
+    const collected = [];
+    for (const url of listingSources) {
+      const page = await fetchPageMetadata(url);
+      if (!page.html) continue;
+      const links = parseFanzaLinks(page.html);
+      collected.push(...links);
+    }
+
+    const dedupMap = new Map();
+    for (const item of collected) {
+      if (!dedupMap.has(item.productId)) dedupMap.set(item.productId, item);
+      if (dedupMap.size >= 20) break;
+    }
+
+    for (const item of dedupMap.values()) {
+      const fallbackSource = item.sourceUrl || canonicalUrl("fanza", item.productId);
+      let title = item.title;
+      if (!title || /^[a-z0-9-]+$/i.test(title)) {
+        const meta = await fetchPageMetadata(fallbackSource);
+        title = meta.title || item.productId;
+      }
+
+      await sql`
+        INSERT INTO fanza_releases (product_id, title, source_url, image_url, fetched_at)
+        VALUES (${item.productId}, ${title}, ${fallbackSource}, ${imageUrl("fanza", item.productId)}, NOW())
+        ON CONFLICT (product_id)
+        DO UPDATE SET
+          title = EXCLUDED.title,
+          source_url = EXCLUDED.source_url,
+          image_url = EXCLUDED.image_url,
+          fetched_at = NOW()
+      `;
+    }
+
+    revalidatePath("/");
+    return { ok: true, count: dedupMap.size };
+  } catch {
+    return { ok: false, message: dbErrorMessage() };
+  }
+}
+
 export async function getProductPageData(platform, productId) {
   try {
     await initDatabase();
@@ -241,7 +346,7 @@ export async function getProductPageData(platform, productId) {
     `;
 
     const reviewsResult = await sql`
-      SELECT id, product_id, platform, product_name, source_url, actress_names, author, score, comment, tags, created_at
+      SELECT id, product_id, platform, product_name, source_url, actress_names, author, score, comment, tags, likes_count, helpful_count, created_at
       FROM reviews
       WHERE product_id = ${productId} AND platform = ${platform}
       ORDER BY created_at DESC, id DESC
@@ -278,13 +383,10 @@ export async function getProductPageData(platform, productId) {
 
     const summary = summaryResult.rows[0] ?? {};
     let productName = String(summary.product_name ?? productId);
-
     let actressNames = normalizeList(reviewsResult.rows.flatMap((r) => (Array.isArray(r.actress_names) ? r.actress_names : [])), 12);
 
-    const sourceCandidates = [canonicalUrl(platform, productId), ...sourceUrls];
-
-    if (!productName || productName.toLowerCase() === productId.toLowerCase() || /^([a-z]{2,6}-?\d{2,6}|[a-z0-9]{4,})$/i.test(productName)) {
-      const meta = await resolveProductMetadata(platform, productId, sourceCandidates);
+    if (!productName || productName.toLowerCase() === productId.toLowerCase() || /^[a-z0-9-]+$/i.test(productName)) {
+      const meta = await resolveProductMetadata(platform, productId, [canonicalUrl(platform, productId), ...sourceUrls]);
       if (meta.title) {
         productName = meta.title;
         await sql`
@@ -364,12 +466,48 @@ export async function getReviewsByUrl(url) {
   };
 }
 
-export async function searchProducts(query) {
+export async function searchProducts(query, tagFilters = []) {
   try {
     await initDatabase();
 
     const q = String(query ?? "").trim();
-    if (!q) return { query: "", parsed: null, items: [], selected: null, error: null };
+    const filters = Array.isArray(tagFilters) ? tagFilters.filter(Boolean) : [];
+
+    if (!q) {
+      const base = await sql`
+        SELECT
+          product_id,
+          platform,
+          COALESCE(MAX(product_name), product_id) AS product_name,
+          ROUND(AVG(score)::numeric, 2) AS average,
+          percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
+          COUNT(*)::int AS total,
+          COALESCE(array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL), ARRAY[]::text[]) AS all_tags,
+          MAX(created_at) AS last_created_at
+        FROM reviews r
+        LEFT JOIN LATERAL unnest(COALESCE(r.tags, ARRAY[]::text[])) AS t(tag) ON TRUE
+        GROUP BY product_id, platform
+        ORDER BY last_created_at DESC
+        LIMIT 30
+      `;
+
+      let items = base.rows.map((row) => ({
+        productId: row.product_id,
+        platform: row.platform,
+        productName: row.product_name,
+        average: toNumberOrNull(row.average),
+        median: toNumberOrNull(row.median),
+        total: Number(row.total ?? 0),
+        imageUrl: imageUrl(row.platform, row.product_id),
+        tags: row.all_tags ?? [],
+      }));
+
+      if (filters.length > 0) {
+        items = items.filter((item) => filters.every((f) => item.tags.includes(f)));
+      }
+
+      return { query: q, parsed: null, items, selected: null, error: null };
+    }
 
     const parsed = parseReviewUrl(q);
     if (parsed) {
@@ -386,21 +524,23 @@ export async function searchProducts(query) {
         ROUND(AVG(score)::numeric, 2) AS average,
         percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
         COUNT(*)::int AS total,
+        COALESCE(array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL), ARRAY[]::text[]) AS all_tags,
         MAX(created_at) AS last_created_at
-      FROM reviews
+      FROM reviews r
+      LEFT JOIN LATERAL unnest(COALESCE(r.tags, ARRAY[]::text[])) AS t(tag) ON TRUE
       WHERE product_id ILIKE ${like}
         OR COALESCE(product_name, '') ILIKE ${like}
         OR comment ILIKE ${like}
         OR EXISTS (
-          SELECT 1 FROM unnest(COALESCE(tags, ARRAY[]::text[])) AS t
-          WHERE t ILIKE ${like}
+          SELECT 1 FROM unnest(COALESCE(tags, ARRAY[]::text[])) AS tag
+          WHERE tag ILIKE ${like}
         )
       GROUP BY product_id, platform
       ORDER BY total DESC, last_created_at DESC
-      LIMIT 24
+      LIMIT 40
     `;
 
-    const items = result.rows.map((row) => ({
+    let items = result.rows.map((row) => ({
       productId: row.product_id,
       platform: row.platform,
       productName: row.product_name,
@@ -408,7 +548,12 @@ export async function searchProducts(query) {
       median: toNumberOrNull(row.median),
       total: Number(row.total ?? 0),
       imageUrl: imageUrl(row.platform, row.product_id),
+      tags: row.all_tags ?? [],
     }));
+
+    if (filters.length > 0) {
+      items = items.filter((item) => filters.every((f) => item.tags.includes(f)));
+    }
 
     return { query: q, parsed: null, items, selected: null, error: null };
   } catch {
@@ -421,42 +566,32 @@ export async function getHomeData() {
     await initDatabase();
 
     const latestResult = await sql`
-      SELECT id, product_id, platform, product_name, source_url, author, score, comment, tags, created_at
+      SELECT id, product_id, platform, product_name, source_url, author, score, comment, tags, likes_count, helpful_count, created_at
       FROM reviews
       ORDER BY created_at DESC, id DESC
       LIMIT 14
     `;
 
-    const productsResult = await sql`
-      SELECT
-        product_id,
-        platform,
-        COALESCE(MAX(product_name), product_id) AS product_name,
-        ROUND(AVG(score)::numeric, 2) AS average,
-        percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
-        COUNT(*)::int AS total,
-        MAX(created_at) AS last_created_at
-      FROM reviews
-      GROUP BY product_id, platform
-      ORDER BY total DESC, average DESC, last_created_at DESC
-      LIMIT 10
+    const releasesResult = await sql`
+      SELECT product_id, title, source_url, image_url, fetched_at
+      FROM fanza_releases
+      ORDER BY fetched_at DESC
+      LIMIT 18
     `;
 
     return {
       latestReviews: latestResult.rows.map((r) => ({ ...r, imageUrl: imageUrl(r.platform, r.product_id) })),
-      hotProducts: productsResult.rows.map((row) => ({
-        productId: row.product_id,
-        platform: row.platform,
-        productName: row.product_name,
-        average: toNumberOrNull(row.average),
-        median: toNumberOrNull(row.median),
-        total: Number(row.total ?? 0),
-        imageUrl: imageUrl(row.platform, row.product_id),
+      newReleases: releasesResult.rows.map((r) => ({
+        productId: r.product_id,
+        title: r.title || r.product_id,
+        sourceUrl: r.source_url || canonicalUrl("fanza", r.product_id),
+        imageUrl: r.image_url || imageUrl("fanza", r.product_id),
+        fetchedAt: r.fetched_at,
       })),
       error: null,
     };
   } catch {
-    return { latestReviews: [], hotProducts: [], error: dbErrorMessage() };
+    return { latestReviews: [], newReleases: [], error: dbErrorMessage() };
   }
 }
 
@@ -537,7 +672,7 @@ export async function postRandomBotReview() {
     }
 
     const picked = available[Math.floor(Math.random() * available.length)];
-    const tagsPool = ["3P以上", "コスプレ", "SM", "熟女", "レイプ", "地雷系", "巨乳", "素人", "企画", "ハメ撮り"];
+    const tagsPool = TAG_OPTIONS;
     const comments = [
       "BOT: fast pacing and clear concept.",
       "BOT: polarizing, but has strong hooks.",

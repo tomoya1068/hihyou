@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/bot-review",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/fanza-new",
+      "schedule": "0 */2 * * *"
     }
   ]
 }

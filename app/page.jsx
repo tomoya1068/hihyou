@@ -4,13 +4,8 @@ import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { getHomeData } from "./review/actions";
 
-function formatNumber(value) {
-  if (value === null || Number.isNaN(value)) return "-";
-  return Number.isInteger(value) ? String(value) : value.toFixed(2);
-}
-
 export default function HomePage() {
-  const [data, setData] = useState({ latestReviews: [], hotProducts: [], error: null });
+  const [data, setData] = useState({ latestReviews: [], newReleases: [], error: null });
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -25,12 +20,9 @@ export default function HomePage() {
       <section className="panel-gold p-7 md:p-8">
         <p className="text-xs uppercase tracking-[0.35em] text-amber-300/90">AV / Fantia Review Nexus</p>
         <h1 className="mt-3 text-3xl font-bold tracking-wide text-amber-200 md:text-4xl">AV・Fantia批評空間</h1>
-        <p className="mt-3 max-w-3xl text-sm text-slate-300 md:text-base">
-          Review cards link to title detail pages with score distribution, reverse URL links, and a per-title overall comment section.
-        </p>
         <div className="mt-6 flex flex-wrap gap-3">
-          <Link href="/search" className="btn-cyan">作品を検索</Link>
-          <Link href="/review/new" className="btn-gold">レビュー投稿</Link>
+          <Link href="/search" className="btn-cyan">検索</Link>
+          <Link href="/review/new" className="btn-gold">投稿</Link>
         </div>
       </section>
 
@@ -38,21 +30,19 @@ export default function HomePage() {
 
       <section className="panel p-6">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-cyan-200">注目作品</h2>
+          <h2 className="text-xl font-semibold text-cyan-200">新作コーナー（FANZA 2時間更新）</h2>
           {isPending && <span className="text-xs text-slate-400">loading...</span>}
         </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {data.hotProducts.map((p) => (
-            <Link key={`${p.platform}-${p.productId}`} href={`/title/${p.platform}/${p.productId}`} className="rounded-xl border border-slate-700/80 bg-slate-950/60 p-4 transition hover:border-amber-300/50">
-              <p className="text-xs uppercase tracking-wider text-cyan-300">{p.platform}</p>
-              <p className="mt-1 truncate text-sm font-semibold text-slate-100">{p.productName}</p>
-              <p className="truncate text-xs text-slate-400">{p.productId}</p>
-              <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                <div><p className="text-slate-500">平均</p><p className="font-semibold text-amber-200">{formatNumber(p.average)}</p></div>
-                <div><p className="text-slate-500">中央値</p><p className="font-semibold text-amber-200">{formatNumber(p.median)}</p></div>
-                <div><p className="text-slate-500">件数</p><p className="font-semibold text-amber-200">{p.total}</p></div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {data.newReleases.map((p) => (
+            <article key={p.productId} className="rounded-xl border border-slate-700/80 bg-slate-950/60 p-4">
+              <p className="text-xs uppercase tracking-wider text-cyan-300">fanza / {p.productId}</p>
+              <p className="mt-1 line-clamp-2 text-sm font-semibold text-slate-100">{p.title}</p>
+              <div className="mt-3 flex gap-2">
+                <Link href={`/title/fanza/${p.productId}`} className="btn-cyan">作品ページ</Link>
+                <a href={p.sourceUrl} target="_blank" rel="noreferrer" className="btn-gold">元サイト</a>
               </div>
-            </Link>
+            </article>
           ))}
         </div>
       </section>
