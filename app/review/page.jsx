@@ -17,14 +17,14 @@ const TAG_OPTIONS = [
 ];
 
 function parseReviewUrl(url) {
-  const fanza = /[?&]cid=([a-z0-9]+)/i.exec(url);
-  if (fanza?.[1]) {
-    return { productId: fanza[1].toLowerCase(), platform: "fanza" };
+  const fanzaMatch = /[?&]cid=([a-z0-9]+)/i.exec(url);
+  if (fanzaMatch?.[1]) {
+    return { productId: fanzaMatch[1].toLowerCase(), platform: "fanza" };
   }
 
-  const fantia = /posts\/(\d+)/i.exec(url);
-  if (fantia?.[1]) {
-    return { productId: fantia[1], platform: "fantia" };
+  const fantiaMatch = /posts\/(\d+)/i.exec(url);
+  if (fantiaMatch?.[1]) {
+    return { productId: fantiaMatch[1], platform: "fantia" };
   }
 
   return null;
@@ -32,7 +32,7 @@ function parseReviewUrl(url) {
 
 function formatNumber(value) {
   if (value === null || Number.isNaN(value)) return "-";
-  return Number.isInteger(value) ? `${value}` : value.toFixed(2);
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 export default function ReviewPage() {
@@ -66,14 +66,10 @@ export default function ReviewPage() {
 
     const timer = setTimeout(() => {
       startTransition(async () => {
-        try {
-          const result = await getReviewsByUrl(url);
-          setParsed(result.parsed);
-          setReviews(result.reviews);
-          setSummary(result.summary);
-        } catch {
-          setStatus("レビューの取得に失敗しました。");
-        }
+        const result = await getReviewsByUrl(url);
+        setParsed(result.parsed);
+        setReviews(result.reviews);
+        setSummary(result.summary);
       });
     }, 250);
 
@@ -91,25 +87,21 @@ export default function ReviewPage() {
     setStatus("");
 
     startTransition(async () => {
-      try {
-        const result = await submitReview({
-          url,
-          score,
-          comment,
-          tags: selectedTags,
-        });
+      const result = await submitReview({
+        url,
+        score,
+        comment,
+        tags: selectedTags,
+      });
 
-        setStatus(result.message);
-        if (!result.ok) return;
+      setStatus(result.message);
+      if (!result.ok) return;
 
-        const refreshed = await getReviewsByUrl(url);
-        setParsed(refreshed.parsed);
-        setReviews(refreshed.reviews);
-        setSummary(refreshed.summary);
-        setComment("");
-      } catch {
-        setStatus("投稿に失敗しました。");
-      }
+      const refreshed = await getReviewsByUrl(url);
+      setParsed(refreshed.parsed);
+      setReviews(refreshed.reviews);
+      setSummary(refreshed.summary);
+      setComment("");
     });
   }
 
@@ -133,9 +125,7 @@ export default function ReviewPage() {
                   className="w-full rounded-md border border-amber-400/30 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none ring-0 transition focus:border-amber-300"
                   required
                 />
-                <p className="mt-2 text-xs text-slate-400">
-                  判定: {parsed ? `${parsed.platform} / ${parsed.productId}` : "未判定"}
-                </p>
+                <p className="mt-2 text-xs text-slate-400">判定: {parsed ? `${parsed.platform} / ${parsed.productId}` : "未判定"}</p>
               </div>
 
               <div>
@@ -237,25 +227,19 @@ export default function ReviewPage() {
           <h2 className="mb-4 text-xl font-semibold text-amber-200">レビュー一覧（新しい順）</h2>
           <div className="space-y-3">
             {reviews.length === 0 && (
-              <p className="rounded-md border border-dashed border-slate-700 p-5 text-sm text-slate-400">
-                対象作品のレビューはまだありません。
-              </p>
+              <p className="rounded-md border border-dashed border-slate-700 p-5 text-sm text-slate-400">対象作品のレビューはまだありません。</p>
             )}
             {reviews.map((review) => (
               <article key={review.id} className="rounded-lg border border-slate-700/80 bg-slate-950/60 p-4">
                 <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-wider text-cyan-300">
-                    {review.platform} / {review.product_id}
-                  </p>
+                  <p className="text-xs uppercase tracking-wider text-cyan-300">{review.platform} / {review.product_id}</p>
                   <p className="text-sm text-amber-300">{new Date(review.created_at).toLocaleString()}</p>
                 </div>
                 <p className="text-2xl font-bold text-amber-200">{review.score} 点</p>
                 {review.comment && <p className="mt-2 text-sm text-slate-200">{review.comment}</p>}
                 <div className="mt-3 flex flex-wrap gap-2">
                   {(review.tags ?? []).map((tag) => (
-                    <span key={`${review.id}-${tag}`} className="rounded-full border border-amber-400/30 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-200">
-                      #{tag}
-                    </span>
+                    <span key={`${review.id}-${tag}`} className="rounded-full border border-amber-400/30 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-200">#{tag}</span>
                   ))}
                 </div>
               </article>

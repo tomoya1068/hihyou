@@ -4,14 +4,14 @@ import { revalidatePath } from "next/cache";
 import { sql } from "@vercel/postgres";
 
 function parseReviewUrl(url) {
-  const fanza = /[?&]cid=([a-z0-9]+)/i.exec(url);
-  if (fanza?.[1]) {
-    return { productId: fanza[1].toLowerCase(), platform: "fanza" };
+  const fanzaMatch = /[?&]cid=([a-z0-9]+)/i.exec(url);
+  if (fanzaMatch?.[1]) {
+    return { productId: fanzaMatch[1].toLowerCase(), platform: "fanza" };
   }
 
-  const fantia = /posts\/(\d+)/i.exec(url);
-  if (fantia?.[1]) {
-    return { productId: fantia[1], platform: "fantia" };
+  const fantiaMatch = /posts\/(\d+)/i.exec(url);
+  if (fantiaMatch?.[1]) {
+    return { productId: fantiaMatch[1], platform: "fantia" };
   }
 
   return null;
@@ -19,8 +19,8 @@ function parseReviewUrl(url) {
 
 function toNumberOrNull(value) {
   if (value === null || value === undefined) return null;
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 export async function initDatabase() {
@@ -36,8 +36,8 @@ export async function initDatabase() {
     )
   `;
 
-  const countResult = await sql`SELECT COUNT(*)::text AS count FROM reviews`;
-  const count = Number(countResult.rows[0]?.count ?? "0");
+  const countResult = await sql`SELECT COUNT(*)::int AS count FROM reviews`;
+  const count = Number(countResult.rows[0]?.count ?? 0);
 
   if (count === 0) {
     await sql`
@@ -70,14 +70,15 @@ async function getReviewsInternal(productId, platform) {
     WHERE product_id = ${productId} AND platform = ${platform}
   `;
 
-  const summaryRow = summaryResult.rows[0];
+  const summaryRow = summaryResult.rows[0] ?? {};
+
   return {
     parsed: { productId, platform },
     reviews: reviewsResult.rows,
     summary: {
-      average: toNumberOrNull(summaryRow?.average),
-      median: toNumberOrNull(summaryRow?.median),
-      total: Number(summaryRow?.total ?? 0),
+      average: toNumberOrNull(summaryRow.average),
+      median: toNumberOrNull(summaryRow.median),
+      total: Number(summaryRow.total ?? 0),
     },
   };
 }
@@ -92,7 +93,8 @@ export async function getReviewsByUrl(url) {
         summary: { average: null, median: null, total: 0 },
       };
     }
-    return getReviewsInternal(parsed.productId, parsed.platform);
+
+    return await getReviewsInternal(parsed.productId, parsed.platform);
   } catch {
     return {
       parsed: null,
