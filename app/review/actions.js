@@ -9,10 +9,8 @@ if (!process.env.POSTGRES_URL_NON_POOLING && fallbackUrl) process.env.POSTGRES_U
 
 function dbErrorMessage() {
   const hasAnyUrl = Boolean(process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.NEON_DATABASE_URL);
-  if (!hasAnyUrl) {
-    return "DB接続情報が未設定です。Vercel Environment Variables に POSTGRES_URL（または DATABASE_URL）を設定してください。";
-  }
-  return "DB接続に失敗しました。接続文字列またはDB権限を確認してください。";
+  if (!hasAnyUrl) return "DB connection settings are missing. Set POSTGRES_URL or DATABASE_URL.";
+  return "DB connection failed. Check URL and DB permissions.";
 }
 
 function parseReviewUrl(raw) {
@@ -68,167 +66,92 @@ function toNumberOrNull(value) {
 }
 
 function formatDistributionRows(rows) {
-  const bins = [
-    ["0-9", 0, 9],
-    ["10-19", 10, 19],
-    ["20-29", 20, 29],
-    ["30-39", 30, 39],
-    ["40-49", 40, 49],
-    ["50-59", 50, 59],
-    ["60-69", 60, 69],
-    ["70-79", 70, 79],
-    ["80-89", 80, 89],
-    ["90-100", 90, 100],
-  ];
-
+  const bins = ["0-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70-79", "80-89", "90-100"];
   const map = new Map(rows.map((r) => [r.bucket, Number(r.count ?? 0)]));
-  return bins.map(([label, min, max]) => ({ label, min, max, count: map.get(label) ?? 0 }));
+  return bins.map((label) => ({ label, count: map.get(label) ?? 0 }));
 }
 
-function stripTags(html) {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeNameList(names) {
-  const out = [];
+function normalizeList(values, max = 10) {
   const seen = new Set();
-  for (const n of names) {
-    const s = String(n ?? "").trim();
+  const out = [];
+  for (const v of values) {
+    const s = String(v ?? "").trim();
     if (!s) continue;
-    if (s.length > 40) continue;
-    if (/https?:\/\//i.test(s)) continue;
-    if (/^[0-9]+$/.test(s)) continue;
-    if (/[<>]/.test(s)) continue;
+    if (s.length > 120) continue;
     const key = s.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(s);
-    if (out.length >= 10) break;
+    if (out.length >= max) break;
   }
   return out;
 }
 
-function extractNamesFromJsonLd(html) {
-  const names = [];
-  const blocks = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi) ?? [];
+function extractTitleFromHtml(html) {
+  const og = /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["'][^>]*>/i.exec(html)?.[1];
+  if (og) return og.trim();
 
-  for (const block of blocks) {
-    const jsonText = block.replace(/^<script[^>]*>/i, "").replace(/<\/script>$/i, "").trim();
+  const tw = /<meta[^>]+name=["']twitter:title["'][^>]+content=["']([^"']+)["'][^>]*>/i.exec(html)?.[1];
+  if (tw) return tw.trim();
+
+  const t = /<title[^>]*>([^<]+)<\/title>/i.exec(html)?.[1];
+  if (t) return t.trim();
+
+  return null;
+}
+
+function extractNamesFromJsonLd(html) {
+  const out = [];
+  const blocks = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi) ?? [];
+  for (const b of blocks) {
+    const jsonText = b.replace(/^<script[^>]*>/i, "").replace(/<\/script>$/i, "").trim();
     try {
       const parsed = JSON.parse(jsonText);
       const list = Array.isArray(parsed) ? parsed : [parsed];
-      for (const obj of list) {
-        const actor = obj?.actor;
-        if (Array.isArray(actor)) {
-          actor.forEach((a) => names.push(a?.name || a));
-        } else if (actor) {
-          names.push(actor?.name || actor);
-        }
+      for (const item of list) {
+        const actor = item?.actor;
+        if (Array.isArray(actor)) actor.forEach((a) => out.push(a?.name || a));
+        else if (actor) out.push(actor?.name || actor);
 
-        const performers = obj?.performer;
-        if (Array.isArray(performers)) performers.forEach((p) => names.push(p?.name || p));
-        else if (performers) names.push(performers?.name || performers);
+        const performer = item?.performer;
+        if (Array.isArray(performer)) performer.forEach((p) => out.push(p?.name || p));
+        else if (performer) out.push(performer?.name || performer);
       }
     } catch {
-      // ignore malformed json-ld
+      // ignore
     }
   }
-
-  return names;
+  return normalizeList(out);
 }
 
-function extractNamesFromHtml(html, platform) {
-  const names = [];
-
-  names.push(...extractNamesFromJsonLd(html));
-
-  const text = stripTags(html);
-  const labelRegex = /(出演者|女優|キャスト|モデル)[:：]\s*([^\n\r]{1,120})/gi;
-  let m;
-  while ((m = labelRegex.exec(text)) !== null) {
-    const chunk = m[2]
-      .split(/[\/・,，、\s]+/)
-      .map((x) => x.trim())
-      .filter(Boolean);
-    names.push(...chunk);
-  }
-
-  const metaKeywords = /<meta[^>]+name=["']keywords["'][^>]+content=["']([^"']+)["'][^>]*>/i.exec(html)?.[1] ?? "";
-  if (metaKeywords) {
-    names.push(...metaKeywords.split(/[;,，、]/).map((x) => x.trim()));
-  }
-
-  if (platform === "fantia") {
-    const title = /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["'][^>]*>/i.exec(html)?.[1] ?? "";
-    const t = title.split(/[|｜]/)[0]?.trim();
-    if (t) names.push(t);
-  }
-
-  return normalizeNameList(names);
-}
-
-async function fetchActressNamesFromUrl(url, platform) {
+async function fetchPageMetadata(url) {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timer = setTimeout(() => controller.abort(), 10000);
     const res = await fetch(url, {
       method: "GET",
-      headers: {
-        "user-agent": "Mozilla/5.0 (compatible; ReviewBot/1.0)",
-      },
+      headers: { "user-agent": "Mozilla/5.0 (compatible; ReviewNexusBot/1.0)" },
       signal: controller.signal,
       cache: "no-store",
     });
-    clearTimeout(timeout);
+    clearTimeout(timer);
+    if (!res.ok) return { title: null, actressNames: [] };
 
-    if (!res.ok) return [];
     const html = await res.text();
-    return extractNamesFromHtml(html, platform);
+    const title = extractTitleFromHtml(html);
+    const actressNames = extractNamesFromJsonLd(html);
+    return { title, actressNames };
   } catch {
-    return [];
+    return { title: null, actressNames: [] };
   }
 }
 
-async function resolveActressNames(productId, platform) {
-  const existing = await sql`
-    SELECT actress_names
-    FROM reviews
-    WHERE product_id = ${productId} AND platform = ${platform}
-      AND actress_names IS NOT NULL
-    ORDER BY created_at DESC, id DESC
-    LIMIT 1
-  `;
-
-  const fromDb = existing.rows[0]?.actress_names;
-  if (Array.isArray(fromDb) && fromDb.length > 0) return fromDb;
-
-  const sourceRows = await sql`
-    SELECT source_url
-    FROM reviews
-    WHERE product_id = ${productId} AND platform = ${platform} AND source_url IS NOT NULL
-    ORDER BY created_at DESC, id DESC
-    LIMIT 5
-  `;
-
-  for (const row of sourceRows.rows) {
-    const names = await fetchActressNamesFromUrl(row.source_url, platform);
-    if (names.length > 0) {
-      await sql`
-        UPDATE reviews
-        SET actress_names = ${names}
-        WHERE product_id = ${productId} AND platform = ${platform}
-          AND (actress_names IS NULL OR array_length(actress_names, 1) IS NULL)
-      `;
-      return names;
-    }
+async function resolveProductMetadata(platform, productId, sourceCandidates) {
+  for (const src of sourceCandidates) {
+    const meta = await fetchPageMetadata(src);
+    if (meta.title || (meta.actressNames && meta.actressNames.length > 0)) return meta;
   }
-
-  return [];
+  return { title: null, actressNames: [] };
 }
 
 export async function initDatabase() {
@@ -270,10 +193,10 @@ export async function initDatabase() {
     await sql`
       INSERT INTO reviews (product_id, platform, product_name, source_url, actress_names, author, score, comment, tags)
       VALUES
-      ('ssis001', 'fanza', 'SSIS-001', 'https://video.dmm.co.jp/av/content/?id=ssis001', ARRAY['架空女優A'], 'user', 95, '神作。伝説。', ARRAY['コスプレ', '3P以上']),
-      ('12345', 'fantia', 'Fantia 12345', 'https://fantia.jp/posts/12345', ARRAY['Fantia Creator'], 'user', 80, '差分が多くて良い', ARRAY['地雷系', 'コスプレ']),
-      ('midv002', 'fanza', 'MIDV-002', 'https://video.dmm.co.jp/av/content/?id=midv002', ARRAY['架空女優B'], 'user', 15, '期待外れ', ARRAY['熟女']),
-      ('ssis001', 'fanza', 'SSIS-001', 'https://video.dmm.co.jp/av/content/?id=ssis001', ARRAY['架空女優A'], 'user', 100, '抜ける', ARRAY['SM', 'レイプ'])
+      ('ssis001', 'fanza', 'SSIS-001', 'https://video.dmm.co.jp/av/content/?id=ssis001', ARRAY[]::text[], 'user', 95, '神作。伝説。', ARRAY['コスプレ', '3P以上']),
+      ('12345', 'fantia', 'Fantia 12345', 'https://fantia.jp/posts/12345', ARRAY[]::text[], 'user', 80, '差分が多くて良い', ARRAY['地雷系', 'コスプレ']),
+      ('midv002', 'fanza', 'MIDV-002', 'https://video.dmm.co.jp/av/content/?id=midv002', ARRAY[]::text[], 'user', 15, '期待外れ', ARRAY['熟女']),
+      ('ssis001', 'fanza', 'SSIS-001', 'https://video.dmm.co.jp/av/content/?id=ssis001', ARRAY[]::text[], 'user', 100, '抜ける', ARRAY['SM', 'レイプ'])
     `;
   }
 }
@@ -286,7 +209,7 @@ export async function saveOverallComment(input) {
     const overallComment = String(input.comment ?? "").trim();
 
     if (!productId || !(platform === "fanza" || platform === "fantia")) {
-      return { ok: false, message: "作品指定が不正です。" };
+      return { ok: false, message: "Invalid product target." };
     }
 
     await sql`
@@ -297,9 +220,7 @@ export async function saveOverallComment(input) {
     `;
 
     revalidatePath(`/title/${platform}/${productId}`);
-    revalidatePath("/");
-    revalidatePath("/search");
-    return { ok: true, message: "全体コメントを保存しました。" };
+    return { ok: true, message: "Saved." };
   } catch {
     return { ok: false, message: dbErrorMessage() };
   }
@@ -353,25 +274,43 @@ export async function getProductPageData(platform, productId) {
       LIMIT 1
     `;
 
-    const sourceUrls = Array.from(new Set(reviewsResult.rows.map((r) => r.source_url).filter(Boolean)));
-
-    let actressNames = [];
-    for (const row of reviewsResult.rows) {
-      if (Array.isArray(row.actress_names)) actressNames.push(...row.actress_names);
-    }
-    actressNames = normalizeNameList(actressNames);
-
-    if (actressNames.length === 0) {
-      actressNames = await resolveActressNames(productId, platform);
-    }
+    const sourceUrls = normalizeList(reviewsResult.rows.map((r) => r.source_url).filter(Boolean), 20);
 
     const summary = summaryResult.rows[0] ?? {};
+    let productName = String(summary.product_name ?? productId);
+
+    let actressNames = normalizeList(reviewsResult.rows.flatMap((r) => (Array.isArray(r.actress_names) ? r.actress_names : [])), 12);
+
+    const sourceCandidates = [canonicalUrl(platform, productId), ...sourceUrls];
+
+    if (!productName || productName.toLowerCase() === productId.toLowerCase() || /^([a-z]{2,6}-?\d{2,6}|[a-z0-9]{4,})$/i.test(productName)) {
+      const meta = await resolveProductMetadata(platform, productId, sourceCandidates);
+      if (meta.title) {
+        productName = meta.title;
+        await sql`
+          UPDATE reviews
+          SET product_name = ${productName}
+          WHERE product_id = ${productId} AND platform = ${platform}
+            AND (product_name IS NULL OR trim(product_name) = '' OR lower(product_name) = lower(${productId}))
+        `;
+      }
+      if (actressNames.length === 0 && meta.actressNames.length > 0) {
+        actressNames = meta.actressNames;
+        await sql`
+          UPDATE reviews
+          SET actress_names = ${actressNames}
+          WHERE product_id = ${productId} AND platform = ${platform}
+            AND (actress_names IS NULL OR array_length(actress_names, 1) IS NULL)
+        `;
+      }
+    }
+
     return {
       ok: true,
       error: null,
       platform,
       productId,
-      productName: summary.product_name ?? productId,
+      productName,
       canonicalUrl: canonicalUrl(platform, productId),
       sourceUrls,
       actressNames,
@@ -411,14 +350,7 @@ export async function getReviewsByTarget(productId, platform) {
 export async function getReviewsByUrl(url) {
   const parsed = parseReviewUrl(url);
   if (!parsed) {
-    return {
-      parsed: null,
-      productName: null,
-      imageUrl: null,
-      reviews: [],
-      summary: { average: null, median: null, total: 0 },
-      error: null,
-    };
+    return { parsed: null, productName: null, imageUrl: null, reviews: [], summary: { average: null, median: null, total: 0 }, error: null };
   }
 
   const data = await getProductPageData(parsed.platform, parsed.productId);
@@ -531,9 +463,7 @@ export async function getHomeData() {
 export async function submitReview(input) {
   try {
     const parsed = parseReviewUrl(input.url);
-    if (!parsed) {
-      return { ok: false, message: "URLから作品IDを抽出できませんでした。", parsed: null };
-    }
+    if (!parsed) return { ok: false, message: "Could not parse product from URL.", parsed: null };
 
     await initDatabase();
 
@@ -543,12 +473,13 @@ export async function submitReview(input) {
     const cleanTags = Array.from(new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean)));
     const source = String(input.url ?? "").trim() || canonicalUrl(parsed.platform, parsed.productId);
 
-    let actressNames = [];
-    if (source) actressNames = await fetchActressNamesFromUrl(source, parsed.platform);
+    const meta = await resolveProductMetadata(parsed.platform, parsed.productId, [source, canonicalUrl(parsed.platform, parsed.productId)]);
+    const productName = cleanName || meta.title || parsed.productId;
+    const actressNames = meta.actressNames ?? [];
 
     await sql`
       INSERT INTO reviews (product_id, platform, product_name, source_url, actress_names, author, score, comment, tags)
-      VALUES (${parsed.productId}, ${parsed.platform}, ${cleanName}, ${source}, ${actressNames}, 'user', ${score}, ${cleanComment}, ${cleanTags})
+      VALUES (${parsed.productId}, ${parsed.platform}, ${productName}, ${source}, ${actressNames}, 'user', ${score}, ${cleanComment}, ${cleanTags})
     `;
 
     revalidatePath("/");
@@ -556,7 +487,7 @@ export async function submitReview(input) {
     revalidatePath("/review/new");
     revalidatePath(`/title/${parsed.platform}/${parsed.productId}`);
 
-    return { ok: true, message: "投稿しました。", parsed };
+    return { ok: true, message: "Posted.", parsed };
   } catch {
     return { ok: false, message: dbErrorMessage(), parsed: null };
   }
@@ -608,27 +539,28 @@ export async function postRandomBotReview() {
     const picked = available[Math.floor(Math.random() * available.length)];
     const tagsPool = ["3P以上", "コスプレ", "SM", "熟女", "レイプ", "地雷系", "巨乳", "素人", "企画", "ハメ撮り"];
     const comments = [
-      "BOT: 展開が速く、テーマが明確。",
-      "BOT: 好みは分かれるが見どころは多い。",
-      "BOT: 導入から終盤までまとまりがある。",
-      "BOT: 画づくりと要素のバランスが良い。",
-      "BOT: 初見でも入りやすい構成。",
+      "BOT: fast pacing and clear concept.",
+      "BOT: polarizing, but has strong hooks.",
+      "BOT: well-balanced structure overall.",
+      "BOT: consistent direction and tone.",
+      "BOT: easy to follow for first viewers.",
     ];
+
+    const source = canonicalUrl(picked.platform, picked.productId);
+    const meta = await resolveProductMetadata(picked.platform, picked.productId, [source]);
 
     const score = Math.floor(Math.random() * 101);
     const comment = comments[Math.floor(Math.random() * comments.length)];
     const tags = [...tagsPool].sort(() => Math.random() - 0.5).slice(0, 2 + Math.floor(Math.random() * 3));
-    const source = canonicalUrl(picked.platform, picked.productId);
-    const actressNames = await fetchActressNamesFromUrl(source, picked.platform);
 
     await sql`
       INSERT INTO reviews (product_id, platform, product_name, source_url, actress_names, author, score, comment, tags)
       VALUES (
         ${picked.productId},
         ${picked.platform},
-        ${picked.platform === "fanza" ? picked.productId.toUpperCase() : `Fantia ${picked.productId}`},
+        ${meta.title || picked.productId.toUpperCase()},
         ${source},
-        ${actressNames},
+        ${meta.actressNames || []},
         'bot',
         ${score},
         ${comment},
