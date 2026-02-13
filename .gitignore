@@ -4,3 +4,4 @@ out
 dist
 coverage
 .env.local
+.vercel
