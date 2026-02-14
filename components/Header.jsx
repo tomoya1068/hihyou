@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 
 const navItems = [
   { href: "/", label: "ホーム" },
@@ -11,7 +11,7 @@ export default function Header() {
     <header className="sticky top-0 z-20 border-b border-slate-700/70 bg-slate-950/85 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 md:px-6">
         <Link href="/" className="text-sm font-bold tracking-[0.2em] text-amber-300 md:text-base">
-          俺のおすすめAV
+          みんなのおすすめAV
         </Link>
         <nav className="flex items-center gap-2">
           {navItems.map((item) => (
