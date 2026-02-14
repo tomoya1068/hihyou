@@ -52,7 +52,13 @@ function parseReviewUrl(raw) {
 }
 
 function canonicalUrl(platform, productId) {
-  if (platform === "fanza") return `https://video.dmm.co.jp/av/content/?id=${productId}`;
+  if (platform === "fanza") {
+    // FANZA has multiple URL styles; alnum IDs are usually cid-style.
+    if (/^[a-z]/i.test(productId)) {
+      return `https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=${productId}/`;
+    }
+    return `https://video.dmm.co.jp/av/content/?id=${productId}`;
+  }
   return `https://fantia.jp/posts/${productId}`;
 }
 
@@ -132,7 +138,12 @@ async function fetchPageMetadata(url) {
     const timer = setTimeout(() => controller.abort(), 10000);
     const res = await fetch(url, {
       method: "GET",
-      headers: { "user-agent": "Mozilla/5.0 (compatible; ReviewNexusBot/1.0)" },
+      headers: {
+        "user-agent": "Mozilla/5.0 (compatible; ReviewNexusBot/1.0)",
+        // FANZA age-gate bypass hint; without this, title can become "年齢認証 - FANZA".
+        cookie: "age_check_done=1; ckcy=1",
+        referer: "https://www.dmm.co.jp/",
+      },
       signal: controller.signal,
       cache: "no-store",
     });
@@ -140,7 +151,10 @@ async function fetchPageMetadata(url) {
     if (!res.ok) return { title: null, actressNames: [] };
 
     const html = await res.text();
-    const title = extractTitleFromHtml(html);
+    let title = extractTitleFromHtml(html);
+    if (title && /年齢認証\s*-\s*FANZA/i.test(title)) {
+      title = null;
+    }
     const actressNames = extractNamesFromJsonLd(html);
     return { title, actressNames, html };
   } catch {
