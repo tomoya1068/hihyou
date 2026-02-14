@@ -720,7 +720,7 @@ export async function getHomeData() {
       SELECT id, product_id, platform, product_name, source_url, cosplay_character, performer_names, author, score, comment, tags, likes_count, helpful_count, created_at
       FROM reviews
       ORDER BY created_at DESC, id DESC
-      LIMIT 14
+      LIMIT 3
     `;
 
     const releasesResult = await sql`
