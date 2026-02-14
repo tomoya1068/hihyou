@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
@@ -80,7 +80,9 @@ export default function TitleDetailPage() {
           <div className="rounded-md border border-slate-700/80 bg-slate-950/60 p-3"><p className="text-slate-500">レビュー数</p><p className="text-xl font-semibold text-amber-200">{data.summary.total}</p></div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <a href={data.canonicalUrl} target="_blank" rel="noreferrer" className="btn-cyan">元サイト</a>
+          {data.canonicalUrl && (
+            <a href={data.canonicalUrl} target="_blank" rel="noreferrer" className="btn-cyan">元サイト</a>
+          )}
           <Link href="/review/new" className="btn-gold">この作品に投稿</Link>
         </div>
       </section>

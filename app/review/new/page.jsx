@@ -4,26 +4,34 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { submitReview } from "../actions";
 
-const TAG_OPTIONS = ["3P??", "????", "SM", "??", "???", "???", "??", "??", "??", "????", "??"];
+const TAG_OPTIONS = ["3P以上", "コスプレ", "SM", "熟女", "レイプ", "地雷系", "巨乳", "素人", "企画", "ハメ撮り", "人妻"];
 
 function parseReviewUrl(url) {
-  const fanzaCid = /[?&]cid=([a-z0-9]+)/i.exec(url);
-  if (fanzaCid?.[1]) return { productId: fanzaCid[1].toLowerCase(), platform: "fanza" };
-
-  const fanzaId = /[?&]id=([a-z0-9]+)/i.exec(url);
-  if (fanzaId?.[1]) return { productId: fanzaId[1].toLowerCase(), platform: "fanza" };
-
-  const fantia = /posts\/(\d+)/i.exec(url);
-  if (fantia?.[1]) return { productId: fantia[1], platform: "fantia" };
-
+  const text = String(url ?? "").trim();
   try {
-    const u = new URL(url);
-    if (u.protocol === "http:" || u.protocol === "https:") {
-      return { productId: "external", platform: "external" };
+    const u = new URL(text);
+    const host = u.hostname.toLowerCase();
+    if (host.includes("fantia.jp")) {
+      const m = /\/posts\/(\d+)/i.exec(u.pathname);
+      if (m?.[1]) return { productId: m[1], platform: "fantia" };
     }
+    if (host.includes("dmm.co.jp") || host.includes("fanza")) {
+      const cid = u.searchParams.get("cid");
+      if (cid && /^[a-z0-9]+$/i.test(cid)) return { productId: cid.toLowerCase(), platform: "fanza" };
+      const id = u.searchParams.get("id");
+      if (id && /^[a-z0-9]+$/i.test(id)) return { productId: id.toLowerCase(), platform: "fanza" };
+    }
+    if (u.protocol === "http:" || u.protocol === "https:") return { productId: "external", platform: "external" };
   } catch {
     // no-op
   }
+
+  const cid = /[?&]cid=([a-z0-9]+)/i.exec(text)?.[1];
+  if (cid) return { productId: cid.toLowerCase(), platform: "fanza" };
+  const id = /[?&]id=([a-z0-9]+)/i.exec(text)?.[1];
+  if (id) return { productId: id.toLowerCase(), platform: "fanza" };
+  const fantia = /posts\/(\d+)/i.exec(text)?.[1];
+  if (fantia) return { productId: fantia, platform: "fantia" };
 
   return null;
 }
@@ -41,7 +49,7 @@ export default function NewReviewPage() {
   const [isPending, startTransition] = useTransition();
 
   const parsed = useMemo(() => parseReviewUrl(url), [url]);
-  const isCosplay = selectedTag === TAG_OPTIONS[1];
+  const isCosplay = selectedTag === "コスプレ";
   const needsTitleForExternal = parsed?.platform === "external";
 
   async function onSubmit(e) {
@@ -112,14 +120,7 @@ export default function NewReviewPage() {
 
           <div>
             <label className="mb-1 block text-sm text-slate-300">点数: {score}</label>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={score}
-              onChange={(e) => setScore(Number(e.target.value))}
-              className="w-full accent-amber-400"
-            />
+            <input type="range" min={0} max={100} value={score} onChange={(e) => setScore(Number(e.target.value))} className="w-full accent-amber-400" />
             <input
               type="number"
               min={0}
@@ -135,29 +136,11 @@ export default function NewReviewPage() {
             <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
               {TAG_OPTIONS.map((tag) => (
                 <label key={tag} className="flex cursor-pointer items-center gap-2 rounded border border-slate-700/80 bg-slate-950/60 px-2 py-1 text-sm hover:border-amber-300/50">
-                  <input
-                    type="radio"
-                    name="review-tag"
-                    checked={selectedTag === tag}
-                    onChange={() => setSelectedTag(tag)}
-                    className="accent-amber-400"
-                  />
+                  <input type="radio" name="review-tag" checked={selectedTag === tag} onChange={() => setSelectedTag(tag)} className="accent-amber-400" />
                   <span>{tag}</span>
                 </label>
               ))}
             </div>
-            {selectedTag && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedTag("");
-                  setCosplayCharacter("");
-                }}
-                className="mt-2 text-xs text-slate-400 underline"
-              >
-                タグ選択を解除
-              </button>
-            )}
           </div>
 
           {isCosplay && (
@@ -174,20 +157,10 @@ export default function NewReviewPage() {
 
           <div>
             <label className="mb-1 block text-sm text-slate-300">感想（任意）</label>
-            <textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              rows={4}
-              className="w-full rounded-md border border-cyan-400/20 bg-slate-950/70 px-3 py-2 text-sm outline-none transition focus:border-cyan-300"
-              placeholder="一言レビュー"
-            />
+            <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={4} className="w-full rounded-md border border-cyan-400/20 bg-slate-950/70 px-3 py-2 text-sm outline-none transition focus:border-cyan-300" placeholder="一言レビュー" />
           </div>
 
-          <button
-            type="submit"
-            disabled={isPending || !parsed || (needsTitleForExternal && !productName.trim())}
-            className="btn-gold w-full disabled:cursor-not-allowed disabled:opacity-50"
-          >
+          <button type="submit" disabled={isPending || !parsed || (needsTitleForExternal && !productName.trim())} className="btn-gold w-full disabled:cursor-not-allowed disabled:opacity-50">
             {isPending ? "投稿中..." : "批評を投稿する"}
           </button>
           {status && <p className="text-sm text-amber-200">{status}</p>}

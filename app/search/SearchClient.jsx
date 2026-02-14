@@ -1,11 +1,11 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { searchProducts } from "../review/actions";
 
-const TAG_OPTIONS = ["3P??", "????", "SM", "??", "???", "???", "??", "??", "??", "????", "??"];
+const TAG_OPTIONS = ["3P以上", "コスプレ", "SM", "熟女", "レイプ", "地雷系", "巨乳", "素人", "企画", "ハメ撮り", "人妻"];
 
 function formatNumber(value) {
   if (value === null || Number.isNaN(value)) return "-";
@@ -62,18 +62,8 @@ export default function SearchPage() {
         <h1 className="text-2xl font-bold text-amber-200">作品検索</h1>
         <p className="mt-2 text-sm text-slate-300">URL / 作品ID / タイトル / コメント / キャラ名で検索できます。</p>
         <form onSubmit={onSubmit} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_10rem]">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="https://video.dmm.co.jp/av/content/?id=sora00368"
-            className="w-full rounded-md border border-amber-400/30 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-amber-300"
-          />
-          <input
-            value={characterQuery}
-            onChange={(e) => setCharacterQuery(e.target.value)}
-            placeholder="キャラ名で絞り込み"
-            className="w-full rounded-md border border-cyan-400/20 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300"
-          />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="https://video.dmm.co.jp/av/content/?id=sora00368" className="w-full rounded-md border border-amber-400/30 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-amber-300" />
+          <input value={characterQuery} onChange={(e) => setCharacterQuery(e.target.value)} placeholder="キャラ名で絞り込み" className="w-full rounded-md border border-cyan-400/20 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300" />
           <button type="submit" className="btn-cyan">検索</button>
         </form>
         <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-5">

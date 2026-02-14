@@ -8,7 +8,7 @@ const fallbackUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL || proc
 if (!process.env.POSTGRES_URL && fallbackUrl) process.env.POSTGRES_URL = fallbackUrl;
 if (!process.env.POSTGRES_URL_NON_POOLING && fallbackUrl) process.env.POSTGRES_URL_NON_POOLING = fallbackUrl;
 
-const TAG_OPTIONS = ["3P??", "????", "SM", "??", "???", "???", "??", "??", "??", "????", "??"];
+const TAG_OPTIONS = ["3P以上", "コスプレ", "SM", "熟女", "レイプ", "地雷系", "巨乳", "素人", "企画", "ハメ撮り", "人妻"];
 
 function dbErrorMessage() {
   const hasAnyUrl = Boolean(process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.NEON_DATABASE_URL);
