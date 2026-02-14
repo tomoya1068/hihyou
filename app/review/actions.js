@@ -459,7 +459,12 @@ export async function getProductPageData(platform, productId) {
     let productName = String(summary.product_name ?? productId);
     let actressNames = normalizeList(reviewsResult.rows.flatMap((r) => (Array.isArray(r.actress_names) ? r.actress_names : [])), 12);
 
-    if (shouldRefreshTitle(productName, productId)) {
+    const shouldAttemptMetadataFetch =
+      shouldRefreshTitle(productName, productId) &&
+      platform !== "external" &&
+      !(platform === "fantia" && /^\d+$/.test(productId));
+
+    if (shouldAttemptMetadataFetch) {
       const meta = await resolveProductMetadata(platform, productId, metadataCandidateUrls(platform, productId, sourceUrls));
       if (meta.title) {
         productName = meta.title;

@@ -113,16 +113,6 @@ export default function TitleDetailPage() {
       </section>
 
       <section className="panel p-6">
-        <h2 className="mb-3 text-lg font-semibold text-amber-200">URL reverse links</h2>
-        <div className="space-y-2 break-all text-sm">
-          <p><a className="text-cyan-200 underline" target="_blank" rel="noreferrer" href={data.canonicalUrl}>{data.canonicalUrl}</a></p>
-          {data.sourceUrls.map((u) => (
-            <p key={u}><a className="text-slate-300 underline" target="_blank" rel="noreferrer" href={u}>{u}</a></p>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel p-6">
         <h2 className="mb-4 text-xl font-semibold text-amber-200">作品の全体コメント</h2>
         <form onSubmit={onSaveOverallComment} className="space-y-3">
           <textarea value={overallComment} onChange={(e) => setOverallComment(e.target.value)} rows={4} className="w-full rounded-md border border-cyan-400/20 bg-slate-950/70 px-3 py-2 text-sm outline-none transition focus:border-cyan-300" />
