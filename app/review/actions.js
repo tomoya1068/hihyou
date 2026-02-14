@@ -8,7 +8,7 @@ const fallbackUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL || proc
 if (!process.env.POSTGRES_URL && fallbackUrl) process.env.POSTGRES_URL = fallbackUrl;
 if (!process.env.POSTGRES_URL_NON_POOLING && fallbackUrl) process.env.POSTGRES_URL_NON_POOLING = fallbackUrl;
 
-const TAG_OPTIONS = ["3P以上", "コスプレ", "SM", "熟女", "レイプ", "地雷系", "巨乳", "素人", "企画", "ハメ撮り"];
+const TAG_OPTIONS = ["3P??", "????", "SM", "??", "???", "???", "??", "??", "??", "????", "??"];
 
 function dbErrorMessage() {
   const hasAnyUrl = Boolean(process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.NEON_DATABASE_URL);
@@ -256,6 +256,7 @@ export async function initDatabase() {
       product_name VARCHAR(255),
       source_url TEXT,
       cosplay_character VARCHAR(255),
+      performer_names TEXT[],
       actress_names TEXT[],
       author VARCHAR(32) DEFAULT 'user',
       score INTEGER NOT NULL CHECK (score >= 0 AND score <= 100),
@@ -290,6 +291,7 @@ export async function initDatabase() {
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS product_name VARCHAR(255)`;
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS source_url TEXT`;
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS cosplay_character VARCHAR(255)`;
+  await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS performer_names TEXT[]`;
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS actress_names TEXT[]`;
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS author VARCHAR(32) DEFAULT 'user'`;
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS likes_count INTEGER NOT NULL DEFAULT 0`;
@@ -420,7 +422,7 @@ export async function getProductPageData(platform, productId) {
     `;
 
     const reviewsResult = await sql`
-      SELECT id, product_id, platform, product_name, source_url, cosplay_character, actress_names, author, score, comment, tags, likes_count, helpful_count, created_at
+      SELECT id, product_id, platform, product_name, source_url, cosplay_character, performer_names, actress_names, author, score, comment, tags, likes_count, helpful_count, created_at
       FROM reviews
       WHERE product_id = ${productId} AND platform = ${platform}
       ORDER BY created_at DESC, id DESC
@@ -709,7 +711,7 @@ export async function getHomeData() {
     await initDatabase();
 
     const latestResult = await sql`
-      SELECT id, product_id, platform, product_name, source_url, cosplay_character, author, score, comment, tags, likes_count, helpful_count, created_at
+      SELECT id, product_id, platform, product_name, source_url, cosplay_character, performer_names, author, score, comment, tags, likes_count, helpful_count, created_at
       FROM reviews
       ORDER BY created_at DESC, id DESC
       LIMIT 14
@@ -752,6 +754,15 @@ export async function submitReview(input) {
     const score = Math.max(0, Math.min(100, Math.round(Number(input.score) || 0)));
     const cleanComment = input.comment?.trim() || null;
     const cleanTags = Array.from(new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean))).slice(0, 1);
+    const performerNames = Array.from(
+      new Set(
+        String(input.performerNames ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(0, 8),
+      ),
+    );
     const cosplayCharacterRaw = String(input.cosplayCharacter ?? "").trim();
     const cosplayCharacter = cleanTags[0] === TAG_OPTIONS[1] && cosplayCharacterRaw ? cosplayCharacterRaw.slice(0, 255) : null;
     const source = String(input.url ?? "").trim() || canonicalUrl(parsed.platform, parsed.productId);
@@ -764,8 +775,8 @@ export async function submitReview(input) {
     const actressNames = meta.actressNames ?? [];
 
     await sql`
-      INSERT INTO reviews (product_id, platform, product_name, source_url, cosplay_character, actress_names, author, score, comment, tags)
-      VALUES (${parsed.productId}, ${parsed.platform}, ${productName}, ${source}, ${cosplayCharacter}, ${actressNames}, 'user', ${score}, ${cleanComment}, ${cleanTags})
+      INSERT INTO reviews (product_id, platform, product_name, source_url, cosplay_character, performer_names, actress_names, author, score, comment, tags)
+      VALUES (${parsed.productId}, ${parsed.platform}, ${productName}, ${source}, ${cosplayCharacter}, ${performerNames}, ${actressNames}, 'user', ${score}, ${cleanComment}, ${cleanTags})
     `;
 
     revalidatePath("/");
@@ -840,13 +851,14 @@ export async function postRandomBotReview() {
     const tags = [...tagsPool].sort(() => Math.random() - 0.5).slice(0, 2 + Math.floor(Math.random() * 3));
 
     await sql`
-      INSERT INTO reviews (product_id, platform, product_name, source_url, cosplay_character, actress_names, author, score, comment, tags)
+      INSERT INTO reviews (product_id, platform, product_name, source_url, cosplay_character, performer_names, actress_names, author, score, comment, tags)
       VALUES (
         ${picked.productId},
         ${picked.platform},
         ${meta.title || picked.productId.toUpperCase()},
         ${source},
         NULL,
+        ARRAY[]::text[],
         ${meta.actressNames || []},
         'bot',
         ${score},

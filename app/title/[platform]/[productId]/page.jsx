@@ -88,16 +88,6 @@ export default function TitleDetailPage() {
       {data.error && <p className="panel p-4 text-sm text-rose-300">{data.error}</p>}
 
       <section className="panel p-6">
-        <h2 className="mb-4 text-xl font-semibold text-cyan-200">女優・出演者</h2>
-        {data.actressNames.length === 0 && <p className="text-sm text-slate-400">出演者情報なし</p>}
-        <div className="flex flex-wrap gap-2">
-          {data.actressNames.map((name) => (
-            <span key={name} className="rounded-full border border-cyan-400/40 bg-cyan-500/10 px-3 py-1 text-sm text-cyan-200">{name}</span>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel p-6">
         <h2 className="mb-4 text-xl font-semibold text-cyan-200">点数分布</h2>
         <div className="space-y-2">
           {data.distribution.map((d) => (
@@ -132,6 +122,9 @@ export default function TitleDetailPage() {
                 <p className="text-xs text-slate-400">{new Date(review.created_at).toLocaleString()} / {review.author}</p>
               </div>
               {review.comment && <p className="mt-2 text-sm text-slate-200">{review.comment}</p>}
+              {Array.isArray(review.performer_names) && review.performer_names.length > 0 && (
+                <p className="mt-2 text-xs text-cyan-200">出演者: {review.performer_names.join(", ")}</p>
+              )}
               {review.source_url && <p className="mt-2 text-xs"><a className="text-cyan-200 underline" href={review.source_url} target="_blank" rel="noreferrer">このレビューの元URLへ</a></p>}
               <div className="mt-2 flex items-center gap-2 text-xs">
                 <button type="button" className="rounded border border-slate-700 px-2 py-1 text-slate-200" onClick={() => onReact(review.id, "like")}>いいね {review.likes_count ?? 0}</button>

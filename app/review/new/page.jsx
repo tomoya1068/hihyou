@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { submitReview } from "../actions";
 
-const TAG_OPTIONS = ["3P以上", "コスプレ", "SM", "熟女", "レイプ", "地雷系", "巨乳", "素人", "企画", "ハメ撮り"];
+const TAG_OPTIONS = ["3P??", "????", "SM", "??", "???", "???", "??", "??", "??", "????", "??"];
 
 function parseReviewUrl(url) {
   const fanzaCid = /[?&]cid=([a-z0-9]+)/i.exec(url);
@@ -36,6 +36,7 @@ export default function NewReviewPage() {
   const [comment, setComment] = useState("");
   const [selectedTag, setSelectedTag] = useState("");
   const [cosplayCharacter, setCosplayCharacter] = useState("");
+  const [performerNames, setPerformerNames] = useState("");
   const [status, setStatus] = useState("");
   const [isPending, startTransition] = useTransition();
 
@@ -55,12 +56,14 @@ export default function NewReviewPage() {
         comment,
         tags: selectedTag ? [selectedTag] : [],
         cosplayCharacter,
+        performerNames,
       });
       setStatus(result.message);
       if (!result.ok) return;
       setComment("");
       setSelectedTag("");
       setCosplayCharacter("");
+      setPerformerNames("");
       router.push("/");
     });
   }
@@ -93,6 +96,16 @@ export default function NewReviewPage() {
               value={productName}
               onChange={(e) => setProductName(e.target.value)}
               placeholder="例: SSIS-001"
+              className="w-full rounded-md border border-cyan-400/20 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm text-slate-300">出演者名（任意・カンマ区切り）</label>
+            <input
+              value={performerNames}
+              onChange={(e) => setPerformerNames(e.target.value)}
+              placeholder="例: 由愛可奈, 三上悠亜"
               className="w-full rounded-md border border-cyan-400/20 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300"
             />
           </div>
