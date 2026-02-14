@@ -53,10 +53,6 @@ function parseReviewUrl(raw) {
 
 function canonicalUrl(platform, productId) {
   if (platform === "fanza") {
-    // FANZA has multiple URL styles; alnum IDs are usually cid-style.
-    if (/^[a-z]/i.test(productId)) {
-      return `https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=${productId}/`;
-    }
     return `https://video.dmm.co.jp/av/content/?id=${productId}`;
   }
   return `https://fantia.jp/posts/${productId}`;
@@ -176,7 +172,7 @@ function extractNamesFromJsonLd(html) {
 async function fetchPageMetadata(url) {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
+    const timer = setTimeout(() => controller.abort(), 3500);
     const res = await fetch(url, {
       method: "GET",
       headers: {
@@ -205,15 +201,14 @@ async function fetchPageMetadata(url) {
 }
 
 async function resolveProductMetadata(platform, productId, sourceCandidates) {
+  const candidates = normalizeList(sourceCandidates.filter(Boolean), 4);
+  const metas = await Promise.all(candidates.map((src) => fetchPageMetadata(src)));
+
   let fallback = { title: null, actressNames: [], html: "" };
-  for (const src of sourceCandidates) {
-    const meta = await fetchPageMetadata(src);
+  for (const meta of metas) {
     const hasData = Boolean(meta.title) || meta.actressNames.length > 0;
     if (hasData && !fallback.title && fallback.actressNames.length === 0) fallback = meta;
-
-    if (meta.title && !isAgeGateTitle(meta.title) && !titleLooksLikeProductCode(meta.title, productId)) {
-      return meta;
-    }
+    if (meta.title && !isAgeGateTitle(meta.title) && !titleLooksLikeProductCode(meta.title, productId)) return meta;
   }
   return fallback;
 }
