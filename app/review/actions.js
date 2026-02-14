@@ -62,6 +62,16 @@ function canonicalUrl(platform, productId) {
   return `https://fantia.jp/posts/${productId}`;
 }
 
+function metadataCandidateUrls(platform, productId, sourceUrls = []) {
+  const urls = normalizeList(sourceUrls.filter(Boolean), 20);
+  if (platform === "fanza") {
+    urls.push(`https://video.dmm.co.jp/av/content/?id=${productId}`);
+    urls.push(`https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=${productId}/`);
+  }
+  urls.push(canonicalUrl(platform, productId));
+  return normalizeList(urls, 24);
+}
+
 function imageUrl(platform, productId) {
   if (platform !== "fanza") return null;
   return `https://pics.dmm.co.jp/digital/video/${productId}/${productId}pl.jpg`;
@@ -112,6 +122,17 @@ function shouldRefreshTitle(currentTitle, productId) {
   if (t.toLowerCase() === String(productId ?? "").trim().toLowerCase()) return true;
   if (/^[a-z0-9-]+$/i.test(t)) return true;
   if (isAgeGateTitle(t)) return true;
+  return false;
+}
+
+function titleLooksLikeProductCode(title, productId) {
+  const t = String(title ?? "").trim();
+  if (!t) return false;
+  const pid = String(productId ?? "").trim();
+  const normalize = (v) => v.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (normalize(t) === normalize(pid)) return true;
+  if (/^[a-z]{2,8}-?\d{2,6}$/i.test(t)) return true;
+  if (/^[a-z0-9-]{4,24}$/i.test(t)) return true;
   return false;
 }
 
@@ -184,11 +205,17 @@ async function fetchPageMetadata(url) {
 }
 
 async function resolveProductMetadata(platform, productId, sourceCandidates) {
+  let fallback = { title: null, actressNames: [], html: "" };
   for (const src of sourceCandidates) {
     const meta = await fetchPageMetadata(src);
-    if (meta.title || meta.actressNames.length > 0) return meta;
+    const hasData = Boolean(meta.title) || meta.actressNames.length > 0;
+    if (hasData && !fallback.title && fallback.actressNames.length === 0) fallback = meta;
+
+    if (meta.title && !isAgeGateTitle(meta.title) && !titleLooksLikeProductCode(meta.title, productId)) {
+      return meta;
+    }
   }
-  return { title: null, actressNames: [], html: "" };
+  return fallback;
 }
 
 function parseFanzaLinks(html) {
@@ -421,7 +448,7 @@ export async function getProductPageData(platform, productId) {
     let actressNames = normalizeList(reviewsResult.rows.flatMap((r) => (Array.isArray(r.actress_names) ? r.actress_names : [])), 12);
 
     if (shouldRefreshTitle(productName, productId)) {
-      const meta = await resolveProductMetadata(platform, productId, [canonicalUrl(platform, productId), ...sourceUrls]);
+      const meta = await resolveProductMetadata(platform, productId, metadataCandidateUrls(platform, productId, sourceUrls));
       if (meta.title) {
         productName = meta.title;
         await sql`
@@ -650,7 +677,7 @@ export async function submitReview(input) {
     const cleanTags = Array.from(new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean)));
     const source = String(input.url ?? "").trim() || canonicalUrl(parsed.platform, parsed.productId);
 
-    const meta = await resolveProductMetadata(parsed.platform, parsed.productId, [source, canonicalUrl(parsed.platform, parsed.productId)]);
+    const meta = await resolveProductMetadata(parsed.platform, parsed.productId, metadataCandidateUrls(parsed.platform, parsed.productId, [source]));
     const productName = cleanName || meta.title || parsed.productId;
     const actressNames = meta.actressNames ?? [];
 
@@ -724,7 +751,7 @@ export async function postRandomBotReview() {
     ];
 
     const source = canonicalUrl(picked.platform, picked.productId);
-    const meta = await resolveProductMetadata(picked.platform, picked.productId, [source]);
+    const meta = await resolveProductMetadata(picked.platform, picked.productId, metadataCandidateUrls(picked.platform, picked.productId, [source]));
 
     const score = Math.floor(Math.random() * 101);
     const comment = comments[Math.floor(Math.random() * comments.length)];

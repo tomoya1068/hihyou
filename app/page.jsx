@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
@@ -21,8 +21,8 @@ export default function HomePage() {
         <p className="text-xs uppercase tracking-[0.35em] text-amber-300/90">AV / Fantia Review Nexus</p>
         <h1 className="mt-3 text-3xl font-bold tracking-wide text-amber-200 md:text-4xl">AV・Fantia批評空間</h1>
         <div className="mt-6 flex flex-wrap gap-3">
-          <Link href="/search" className="btn-cyan">検索</Link>
-          <Link href="/review/new" className="btn-gold">投稿</Link>
+          <Link href="/search" className="btn-cyan">作品検索</Link>
+          <Link href="/review/new" className="btn-gold">レビュー投稿</Link>
         </div>
       </section>
 
@@ -30,28 +30,16 @@ export default function HomePage() {
 
       <section className="panel p-6">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-cyan-200">新作コーナー（FANZA 2時間更新）</h2>
+          <h2 className="text-xl font-semibold text-amber-200">最新レビュー</h2>
           {isPending && <span className="text-xs text-slate-400">loading...</span>}
         </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {data.newReleases.map((p) => (
-            <article key={p.productId} className="rounded-xl border border-slate-700/80 bg-slate-950/60 p-4">
-              <p className="text-xs uppercase tracking-wider text-cyan-300">fanza / {p.productId}</p>
-              <p className="mt-1 line-clamp-2 text-sm font-semibold text-slate-100">{p.title}</p>
-              <div className="mt-3 flex gap-2">
-                <Link href={`/title/fanza/${p.productId}`} className="btn-cyan">作品ページ</Link>
-                <a href={p.sourceUrl} target="_blank" rel="noreferrer" className="btn-gold">元サイト</a>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel p-6">
-        <h2 className="mb-4 text-xl font-semibold text-amber-200">新着レビュー</h2>
         <div className="space-y-3">
           {data.latestReviews.map((review) => (
-            <Link key={review.id} href={`/title/${review.platform}/${review.product_id}`} className="block rounded-lg border border-slate-700/80 bg-slate-950/60 p-4 transition hover:border-cyan-300/50">
+            <Link
+              key={review.id}
+              href={`/title/${review.platform}/${review.product_id}`}
+              className="block rounded-lg border border-slate-700/80 bg-slate-950/60 p-4 transition hover:border-cyan-300/50"
+            >
               <div className="flex items-center justify-between">
                 <p className="text-xs uppercase tracking-wider text-cyan-300">{review.platform} / {review.product_id}</p>
                 <p className="text-xs text-slate-400">{new Date(review.created_at).toLocaleString()}</p>
