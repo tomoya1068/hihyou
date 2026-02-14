@@ -3,8 +3,8 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
 export const metadata = {
-  title: "AV・Fantia批評空間",
-  description: "作品レビュー検索・投稿プラットフォーム",
+  title: "俺のおすすめAV",
+  description: "レビュー投稿・検索・統計をまとめたサイト",
 };
 
 export default function RootLayout({ children }) {

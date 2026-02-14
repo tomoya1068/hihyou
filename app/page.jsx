@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
@@ -19,7 +19,7 @@ export default function HomePage() {
     <div className="space-y-8">
       <section className="panel-gold p-7 md:p-8">
         <p className="text-xs uppercase tracking-[0.35em] text-amber-300/90">AV / Fantia Review Nexus</p>
-        <h1 className="mt-3 text-3xl font-bold tracking-wide text-amber-200 md:text-4xl">AV・Fantia批評空間</h1>
+        <h1 className="mt-3 text-3xl font-bold tracking-wide text-amber-200 md:text-4xl">俺のおすすめAV</h1>
         <div className="mt-6 flex flex-wrap gap-3">
           <Link href="/search" className="btn-cyan">作品検索</Link>
           <Link href="/review/new" className="btn-gold">レビュー投稿</Link>
@@ -54,3 +54,4 @@ export default function HomePage() {
     </div>
   );
 }
+

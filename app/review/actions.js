@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { sql } from "@vercel/postgres";
+import { createHash } from "crypto";
 
 const fallbackUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.NEON_DATABASE_URL;
 if (!process.env.POSTGRES_URL && fallbackUrl) process.env.POSTGRES_URL = fallbackUrl;
@@ -13,6 +14,12 @@ function dbErrorMessage() {
   const hasAnyUrl = Boolean(process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.NEON_DATABASE_URL);
   if (!hasAnyUrl) return "DB connection settings are missing. Set POSTGRES_URL or DATABASE_URL.";
   return "DB connection failed. Check URL and DB permissions.";
+}
+
+function externalProductIdFromUrl(rawUrl) {
+  const normalized = String(rawUrl ?? "").trim();
+  const hash = createHash("sha1").update(normalized).digest("hex").slice(0, 16);
+  return `ext_${hash}`;
 }
 
 function parseReviewUrl(raw) {
@@ -35,6 +42,10 @@ function parseReviewUrl(raw) {
       const id = url.searchParams.get("id");
       if (id && /^[a-z0-9]+$/i.test(id)) return { productId: id.toLowerCase(), platform: "fanza" };
     }
+
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return { productId: externalProductIdFromUrl(url.toString()), platform: "external" };
+    }
   } catch {
     // fallback below
   }
@@ -55,7 +66,10 @@ function canonicalUrl(platform, productId) {
   if (platform === "fanza") {
     return `https://video.dmm.co.jp/av/content/?id=${productId}`;
   }
-  return `https://fantia.jp/posts/${productId}`;
+  if (platform === "fantia") {
+    return `https://fantia.jp/posts/${productId}`;
+  }
+  return "";
 }
 
 function metadataCandidateUrls(platform, productId, sourceUrls = []) {
@@ -64,7 +78,8 @@ function metadataCandidateUrls(platform, productId, sourceUrls = []) {
     urls.push(`https://video.dmm.co.jp/av/content/?id=${productId}`);
     urls.push(`https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=${productId}/`);
   }
-  urls.push(canonicalUrl(platform, productId));
+  const canonical = canonicalUrl(platform, productId);
+  if (canonical) urls.push(canonical);
   return normalizeList(urls, 24);
 }
 
@@ -240,6 +255,7 @@ export async function initDatabase() {
       platform VARCHAR(50) NOT NULL,
       product_name VARCHAR(255),
       source_url TEXT,
+      cosplay_character VARCHAR(255),
       actress_names TEXT[],
       author VARCHAR(32) DEFAULT 'user',
       score INTEGER NOT NULL CHECK (score >= 0 AND score <= 100),
@@ -273,6 +289,7 @@ export async function initDatabase() {
 
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS product_name VARCHAR(255)`;
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS source_url TEXT`;
+  await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS cosplay_character VARCHAR(255)`;
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS actress_names TEXT[]`;
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS author VARCHAR(32) DEFAULT 'user'`;
   await sql`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS likes_count INTEGER NOT NULL DEFAULT 0`;
@@ -403,7 +420,7 @@ export async function getProductPageData(platform, productId) {
     `;
 
     const reviewsResult = await sql`
-      SELECT id, product_id, platform, product_name, source_url, actress_names, author, score, comment, tags, likes_count, helpful_count, created_at
+      SELECT id, product_id, platform, product_name, source_url, cosplay_character, actress_names, author, score, comment, tags, likes_count, helpful_count, created_at
       FROM reviews
       WHERE product_id = ${productId} AND platform = ${platform}
       ORDER BY created_at DESC, id DESC
@@ -471,13 +488,15 @@ export async function getProductPageData(platform, productId) {
       }
     }
 
+    const canonical = canonicalUrl(platform, productId) || sourceUrls[0] || "";
+
     return {
       ok: true,
       error: null,
       platform,
       productId,
       productName,
-      canonicalUrl: canonicalUrl(platform, productId),
+      canonicalUrl: canonical,
       sourceUrls,
       actressNames,
       overallComment: noteResult.rows[0]?.overall_comment ?? "",
@@ -497,7 +516,7 @@ export async function getProductPageData(platform, productId) {
       platform,
       productId,
       productName: productId,
-      canonicalUrl: canonicalUrl(platform, productId),
+      canonicalUrl: canonicalUrl(platform, productId) || "",
       sourceUrls: [],
       actressNames: [],
       overallComment: "",
@@ -530,12 +549,13 @@ export async function getReviewsByUrl(url) {
   };
 }
 
-export async function searchProducts(query, tagFilters = []) {
+export async function searchProducts(query, tagFilters = [], characterQuery = "") {
   try {
     await initDatabase();
 
     const q = String(query ?? "").trim();
     const filters = Array.isArray(tagFilters) ? tagFilters.filter(Boolean) : [];
+    const character = String(characterQuery ?? "").trim();
 
     if (!q) {
       const base = await sql`
@@ -547,9 +567,11 @@ export async function searchProducts(query, tagFilters = []) {
           percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
           COUNT(*)::int AS total,
           COALESCE(array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL), ARRAY[]::text[]) AS all_tags,
+          COALESCE(array_agg(DISTINCT r.cosplay_character) FILTER (WHERE r.cosplay_character IS NOT NULL AND trim(r.cosplay_character) <> ''), ARRAY[]::text[]) AS all_characters,
           MAX(created_at) AS last_created_at
         FROM reviews r
         LEFT JOIN LATERAL unnest(COALESCE(r.tags, ARRAY[]::text[])) AS t(tag) ON TRUE
+        ${character ? sql`WHERE COALESCE(r.cosplay_character, '') ILIKE ${`%${character}%`}` : sql``}
         GROUP BY product_id, platform
         ORDER BY last_created_at DESC
         LIMIT 30
@@ -564,6 +586,7 @@ export async function searchProducts(query, tagFilters = []) {
         total: Number(row.total ?? 0),
         imageUrl: imageUrl(row.platform, row.product_id),
         tags: row.all_tags ?? [],
+        characters: row.all_characters ?? [],
       }));
 
       if (filters.length > 0) {
@@ -589,16 +612,19 @@ export async function searchProducts(query, tagFilters = []) {
         percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
         COUNT(*)::int AS total,
         COALESCE(array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL), ARRAY[]::text[]) AS all_tags,
+        COALESCE(array_agg(DISTINCT r.cosplay_character) FILTER (WHERE r.cosplay_character IS NOT NULL AND trim(r.cosplay_character) <> ''), ARRAY[]::text[]) AS all_characters,
         MAX(created_at) AS last_created_at
       FROM reviews r
       LEFT JOIN LATERAL unnest(COALESCE(r.tags, ARRAY[]::text[])) AS t(tag) ON TRUE
       WHERE product_id ILIKE ${like}
         OR COALESCE(product_name, '') ILIKE ${like}
         OR comment ILIKE ${like}
+        OR COALESCE(cosplay_character, '') ILIKE ${like}
         OR EXISTS (
           SELECT 1 FROM unnest(COALESCE(tags, ARRAY[]::text[])) AS tag
           WHERE tag ILIKE ${like}
         )
+        ${character ? sql`AND COALESCE(cosplay_character, '') ILIKE ${`%${character}%`}` : sql``}
       GROUP BY product_id, platform
       ORDER BY total DESC, last_created_at DESC
       LIMIT 40
@@ -613,6 +639,7 @@ export async function searchProducts(query, tagFilters = []) {
       total: Number(row.total ?? 0),
       imageUrl: imageUrl(row.platform, row.product_id),
       tags: row.all_tags ?? [],
+      characters: row.all_characters ?? [],
     }));
 
     if (filters.length > 0) {
@@ -630,7 +657,7 @@ export async function getHomeData() {
     await initDatabase();
 
     const latestResult = await sql`
-      SELECT id, product_id, platform, product_name, source_url, author, score, comment, tags, likes_count, helpful_count, created_at
+      SELECT id, product_id, platform, product_name, source_url, cosplay_character, author, score, comment, tags, likes_count, helpful_count, created_at
       FROM reviews
       ORDER BY created_at DESC, id DESC
       LIMIT 14
@@ -661,24 +688,32 @@ export async function getHomeData() {
 
 export async function submitReview(input) {
   try {
+    const cleanName = input.productName?.trim() || null;
     const parsed = parseReviewUrl(input.url);
     if (!parsed) return { ok: false, message: "Could not parse product from URL.", parsed: null };
+    if (parsed.platform === "external" && !cleanName) {
+      return { ok: false, message: "FANZA/Fantia 以外のURLは作品名（タイトル）が必須です。", parsed: null };
+    }
 
     await initDatabase();
 
     const score = Math.max(0, Math.min(100, Math.round(Number(input.score) || 0)));
-    const cleanName = input.productName?.trim() || null;
     const cleanComment = input.comment?.trim() || null;
-    const cleanTags = Array.from(new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean)));
+    const cleanTags = Array.from(new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean))).slice(0, 1);
+    const cosplayCharacterRaw = String(input.cosplayCharacter ?? "").trim();
+    const cosplayCharacter = cleanTags[0] === TAG_OPTIONS[1] && cosplayCharacterRaw ? cosplayCharacterRaw.slice(0, 255) : null;
     const source = String(input.url ?? "").trim() || canonicalUrl(parsed.platform, parsed.productId);
 
-    const meta = await resolveProductMetadata(parsed.platform, parsed.productId, metadataCandidateUrls(parsed.platform, parsed.productId, [source]));
+    const meta =
+      parsed.platform === "external"
+        ? { title: null, actressNames: [] }
+        : await resolveProductMetadata(parsed.platform, parsed.productId, metadataCandidateUrls(parsed.platform, parsed.productId, [source]));
     const productName = cleanName || meta.title || parsed.productId;
     const actressNames = meta.actressNames ?? [];
 
     await sql`
-      INSERT INTO reviews (product_id, platform, product_name, source_url, actress_names, author, score, comment, tags)
-      VALUES (${parsed.productId}, ${parsed.platform}, ${productName}, ${source}, ${actressNames}, 'user', ${score}, ${cleanComment}, ${cleanTags})
+      INSERT INTO reviews (product_id, platform, product_name, source_url, cosplay_character, actress_names, author, score, comment, tags)
+      VALUES (${parsed.productId}, ${parsed.platform}, ${productName}, ${source}, ${cosplayCharacter}, ${actressNames}, 'user', ${score}, ${cleanComment}, ${cleanTags})
     `;
 
     revalidatePath("/");
@@ -753,12 +788,13 @@ export async function postRandomBotReview() {
     const tags = [...tagsPool].sort(() => Math.random() - 0.5).slice(0, 2 + Math.floor(Math.random() * 3));
 
     await sql`
-      INSERT INTO reviews (product_id, platform, product_name, source_url, actress_names, author, score, comment, tags)
+      INSERT INTO reviews (product_id, platform, product_name, source_url, cosplay_character, actress_names, author, score, comment, tags)
       VALUES (
         ${picked.productId},
         ${picked.platform},
         ${meta.title || picked.productId.toUpperCase()},
         ${source},
+        NULL,
         ${meta.actressNames || []},
         'bot',
         ${score},
