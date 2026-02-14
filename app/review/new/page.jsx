@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { submitReview } from "../actions";
 
 const TAG_OPTIONS = ["3P以上", "コスプレ", "SM", "熟女", "レイプ", "地雷系", "巨乳", "素人", "企画", "ハメ撮り"];
@@ -28,6 +29,7 @@ function parseReviewUrl(url) {
 }
 
 export default function NewReviewPage() {
+  const router = useRouter();
   const [url, setUrl] = useState("");
   const [productName, setProductName] = useState("");
   const [score, setScore] = useState(80);
@@ -59,6 +61,7 @@ export default function NewReviewPage() {
       setComment("");
       setSelectedTag("");
       setCosplayCharacter("");
+      router.push("/");
     });
   }
 

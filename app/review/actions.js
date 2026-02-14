@@ -556,26 +556,45 @@ export async function searchProducts(query, tagFilters = [], characterQuery = ""
     const q = String(query ?? "").trim();
     const filters = Array.isArray(tagFilters) ? tagFilters.filter(Boolean) : [];
     const character = String(characterQuery ?? "").trim();
+    const characterLike = `%${character}%`;
 
     if (!q) {
-      const base = await sql`
-        SELECT
-          product_id,
-          platform,
-          COALESCE(MAX(product_name), product_id) AS product_name,
-          ROUND(AVG(score)::numeric, 2) AS average,
-          percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
-          COUNT(*)::int AS total,
-          COALESCE(array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL), ARRAY[]::text[]) AS all_tags,
-          COALESCE(array_agg(DISTINCT r.cosplay_character) FILTER (WHERE r.cosplay_character IS NOT NULL AND trim(r.cosplay_character) <> ''), ARRAY[]::text[]) AS all_characters,
-          MAX(created_at) AS last_created_at
-        FROM reviews r
-        LEFT JOIN LATERAL unnest(COALESCE(r.tags, ARRAY[]::text[])) AS t(tag) ON TRUE
-        ${character ? sql`WHERE COALESCE(r.cosplay_character, '') ILIKE ${`%${character}%`}` : sql``}
-        GROUP BY product_id, platform
-        ORDER BY last_created_at DESC
-        LIMIT 30
-      `;
+      const base = character
+        ? await sql`
+            SELECT
+              product_id,
+              platform,
+              COALESCE(MAX(product_name), product_id) AS product_name,
+              ROUND(AVG(score)::numeric, 2) AS average,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
+              COUNT(*)::int AS total,
+              COALESCE(array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL), ARRAY[]::text[]) AS all_tags,
+              COALESCE(array_agg(DISTINCT r.cosplay_character) FILTER (WHERE r.cosplay_character IS NOT NULL AND trim(r.cosplay_character) <> ''), ARRAY[]::text[]) AS all_characters,
+              MAX(created_at) AS last_created_at
+            FROM reviews r
+            LEFT JOIN LATERAL unnest(COALESCE(r.tags, ARRAY[]::text[])) AS t(tag) ON TRUE
+            WHERE COALESCE(r.cosplay_character, '') ILIKE ${characterLike}
+            GROUP BY product_id, platform
+            ORDER BY last_created_at DESC
+            LIMIT 30
+          `
+        : await sql`
+            SELECT
+              product_id,
+              platform,
+              COALESCE(MAX(product_name), product_id) AS product_name,
+              ROUND(AVG(score)::numeric, 2) AS average,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
+              COUNT(*)::int AS total,
+              COALESCE(array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL), ARRAY[]::text[]) AS all_tags,
+              COALESCE(array_agg(DISTINCT r.cosplay_character) FILTER (WHERE r.cosplay_character IS NOT NULL AND trim(r.cosplay_character) <> ''), ARRAY[]::text[]) AS all_characters,
+              MAX(created_at) AS last_created_at
+            FROM reviews r
+            LEFT JOIN LATERAL unnest(COALESCE(r.tags, ARRAY[]::text[])) AS t(tag) ON TRUE
+            GROUP BY product_id, platform
+            ORDER BY last_created_at DESC
+            LIMIT 30
+          `;
 
       let items = base.rows.map((row) => ({
         productId: row.product_id,
@@ -603,32 +622,60 @@ export async function searchProducts(query, tagFilters = [], characterQuery = ""
     }
 
     const like = `%${q}%`;
-    const result = await sql`
-      SELECT
-        product_id,
-        platform,
-        COALESCE(MAX(product_name), product_id) AS product_name,
-        ROUND(AVG(score)::numeric, 2) AS average,
-        percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
-        COUNT(*)::int AS total,
-        COALESCE(array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL), ARRAY[]::text[]) AS all_tags,
-        COALESCE(array_agg(DISTINCT r.cosplay_character) FILTER (WHERE r.cosplay_character IS NOT NULL AND trim(r.cosplay_character) <> ''), ARRAY[]::text[]) AS all_characters,
-        MAX(created_at) AS last_created_at
-      FROM reviews r
-      LEFT JOIN LATERAL unnest(COALESCE(r.tags, ARRAY[]::text[])) AS t(tag) ON TRUE
-      WHERE product_id ILIKE ${like}
-        OR COALESCE(product_name, '') ILIKE ${like}
-        OR comment ILIKE ${like}
-        OR COALESCE(cosplay_character, '') ILIKE ${like}
-        OR EXISTS (
-          SELECT 1 FROM unnest(COALESCE(tags, ARRAY[]::text[])) AS tag
-          WHERE tag ILIKE ${like}
-        )
-        ${character ? sql`AND COALESCE(cosplay_character, '') ILIKE ${`%${character}%`}` : sql``}
-      GROUP BY product_id, platform
-      ORDER BY total DESC, last_created_at DESC
-      LIMIT 40
-    `;
+    const result = character
+      ? await sql`
+          SELECT
+            product_id,
+            platform,
+            COALESCE(MAX(product_name), product_id) AS product_name,
+            ROUND(AVG(score)::numeric, 2) AS average,
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
+            COUNT(*)::int AS total,
+            COALESCE(array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL), ARRAY[]::text[]) AS all_tags,
+            COALESCE(array_agg(DISTINCT r.cosplay_character) FILTER (WHERE r.cosplay_character IS NOT NULL AND trim(r.cosplay_character) <> ''), ARRAY[]::text[]) AS all_characters,
+            MAX(created_at) AS last_created_at
+          FROM reviews r
+          LEFT JOIN LATERAL unnest(COALESCE(r.tags, ARRAY[]::text[])) AS t(tag) ON TRUE
+          WHERE (
+            product_id ILIKE ${like}
+            OR COALESCE(product_name, '') ILIKE ${like}
+            OR comment ILIKE ${like}
+            OR COALESCE(cosplay_character, '') ILIKE ${like}
+            OR EXISTS (
+              SELECT 1 FROM unnest(COALESCE(tags, ARRAY[]::text[])) AS tag
+              WHERE tag ILIKE ${like}
+            )
+          )
+            AND COALESCE(cosplay_character, '') ILIKE ${characterLike}
+          GROUP BY product_id, platform
+          ORDER BY total DESC, last_created_at DESC
+          LIMIT 40
+        `
+      : await sql`
+          SELECT
+            product_id,
+            platform,
+            COALESCE(MAX(product_name), product_id) AS product_name,
+            ROUND(AVG(score)::numeric, 2) AS average,
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY score) AS median,
+            COUNT(*)::int AS total,
+            COALESCE(array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL), ARRAY[]::text[]) AS all_tags,
+            COALESCE(array_agg(DISTINCT r.cosplay_character) FILTER (WHERE r.cosplay_character IS NOT NULL AND trim(r.cosplay_character) <> ''), ARRAY[]::text[]) AS all_characters,
+            MAX(created_at) AS last_created_at
+          FROM reviews r
+          LEFT JOIN LATERAL unnest(COALESCE(r.tags, ARRAY[]::text[])) AS t(tag) ON TRUE
+          WHERE product_id ILIKE ${like}
+            OR COALESCE(product_name, '') ILIKE ${like}
+            OR comment ILIKE ${like}
+            OR COALESCE(cosplay_character, '') ILIKE ${like}
+            OR EXISTS (
+              SELECT 1 FROM unnest(COALESCE(tags, ARRAY[]::text[])) AS tag
+              WHERE tag ILIKE ${like}
+            )
+          GROUP BY product_id, platform
+          ORDER BY total DESC, last_created_at DESC
+          LIMIT 40
+        `;
 
     let items = result.rows.map((row) => ({
       productId: row.product_id,
@@ -705,7 +752,7 @@ export async function submitReview(input) {
     const source = String(input.url ?? "").trim() || canonicalUrl(parsed.platform, parsed.productId);
 
     const meta =
-      parsed.platform === "external"
+      parsed.platform === "external" || cleanName
         ? { title: null, actressNames: [] }
         : await resolveProductMetadata(parsed.platform, parsed.productId, metadataCandidateUrls(parsed.platform, parsed.productId, [source]));
     const productName = cleanName || meta.title || parsed.productId;
