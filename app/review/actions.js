@@ -33,6 +33,10 @@ function parseReviewUrl(raw) {
     if (host.includes("fantia.jp")) {
       const postMatch = /\/posts\/(\d+)/i.exec(url.pathname);
       if (postMatch?.[1]) return { productId: postMatch[1], platform: "fantia" };
+      const productMatch = /\/products\/(\d+)/i.exec(url.pathname);
+      if (productMatch?.[1]) return { productId: productMatch[1], platform: "fantia" };
+      const itemId = url.searchParams.get("item_id");
+      if (itemId && /^\d+$/.test(itemId)) return { productId: itemId, platform: "fantia" };
     }
 
     if (host.includes("dmm.co.jp") || host.includes("fanza")) {
@@ -56,8 +60,10 @@ function parseReviewUrl(raw) {
   const idMatch = /[?&]id=([a-z0-9]+)/i.exec(text);
   if (idMatch?.[1]) return { productId: idMatch[1].toLowerCase(), platform: "fanza" };
 
-  const fantiaMatch = /posts\/(\d+)/i.exec(text);
+  const fantiaMatch = /(?:posts|products)\/(\d+)/i.exec(text);
   if (fantiaMatch?.[1]) return { productId: fantiaMatch[1], platform: "fantia" };
+  const fantiaItemId = /[?&]item_id=(\d+)/i.exec(text);
+  if (fantiaItemId?.[1]) return { productId: fantiaItemId[1], platform: "fantia" };
 
   return null;
 }

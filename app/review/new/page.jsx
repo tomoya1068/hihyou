@@ -12,8 +12,12 @@ function parseReviewUrl(url) {
     const u = new URL(text);
     const host = u.hostname.toLowerCase();
     if (host.includes("fantia.jp")) {
-      const m = /\/posts\/(\d+)/i.exec(u.pathname);
-      if (m?.[1]) return { productId: m[1], platform: "fantia" };
+      const post = /\/posts\/(\d+)/i.exec(u.pathname);
+      if (post?.[1]) return { productId: post[1], platform: "fantia" };
+      const product = /\/products\/(\d+)/i.exec(u.pathname);
+      if (product?.[1]) return { productId: product[1], platform: "fantia" };
+      const itemId = u.searchParams.get("item_id");
+      if (itemId && /^\d+$/.test(itemId)) return { productId: itemId, platform: "fantia" };
     }
     if (host.includes("dmm.co.jp") || host.includes("fanza")) {
       const cid = u.searchParams.get("cid");
@@ -30,8 +34,10 @@ function parseReviewUrl(url) {
   if (cid) return { productId: cid.toLowerCase(), platform: "fanza" };
   const id = /[?&]id=([a-z0-9]+)/i.exec(text)?.[1];
   if (id) return { productId: id.toLowerCase(), platform: "fanza" };
-  const fantia = /posts\/(\d+)/i.exec(text)?.[1];
+  const fantia = /(?:posts|products)\/(\d+)/i.exec(text)?.[1];
   if (fantia) return { productId: fantia, platform: "fantia" };
+  const fantiaItemId = /[?&]item_id=(\d+)/i.exec(text)?.[1];
+  if (fantiaItemId) return { productId: fantiaItemId, platform: "fantia" };
 
   return null;
 }
