@@ -95,6 +95,26 @@ function normalizeList(values, max = 12) {
   return out;
 }
 
+function isAgeGateTitle(title) {
+  const t = String(title ?? "").trim();
+  if (!t) return false;
+  return (
+    /\u5e74\u9f62\u8a8d\u8a3c/i.test(t) ||
+    /age\s*verification/i.test(t) ||
+    /18\+/.test(t) ||
+    (/fanza/i.test(t) && /verify|\u8a8d\u8a3c|\u5e74\u9f62/i.test(t))
+  );
+}
+
+function shouldRefreshTitle(currentTitle, productId) {
+  const t = String(currentTitle ?? "").trim();
+  if (!t) return true;
+  if (t.toLowerCase() === String(productId ?? "").trim().toLowerCase()) return true;
+  if (/^[a-z0-9-]+$/i.test(t)) return true;
+  if (isAgeGateTitle(t)) return true;
+  return false;
+}
+
 function extractTitleFromHtml(html) {
   const og = /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["'][^>]*>/i.exec(html)?.[1];
   if (og) return og.trim();
@@ -155,6 +175,7 @@ async function fetchPageMetadata(url) {
     if (title && /年齢認証\s*-\s*FANZA/i.test(title)) {
       title = null;
     }
+    if (isAgeGateTitle(title)) title = null;
     const actressNames = extractNamesFromJsonLd(html);
     return { title, actressNames, html };
   } catch {
@@ -399,7 +420,7 @@ export async function getProductPageData(platform, productId) {
     let productName = String(summary.product_name ?? productId);
     let actressNames = normalizeList(reviewsResult.rows.flatMap((r) => (Array.isArray(r.actress_names) ? r.actress_names : [])), 12);
 
-    if (!productName || productName.toLowerCase() === productId.toLowerCase() || /^[a-z0-9-]+$/i.test(productName)) {
+    if (shouldRefreshTitle(productName, productId)) {
       const meta = await resolveProductMetadata(platform, productId, [canonicalUrl(platform, productId), ...sourceUrls]);
       if (meta.title) {
         productName = meta.title;
@@ -407,7 +428,14 @@ export async function getProductPageData(platform, productId) {
           UPDATE reviews
           SET product_name = ${productName}
           WHERE product_id = ${productId} AND platform = ${platform}
-            AND (product_name IS NULL OR trim(product_name) = '' OR lower(product_name) = lower(${productId}))
+            AND (
+              product_name IS NULL
+              OR trim(product_name) = ''
+              OR lower(product_name) = lower(${productId})
+              OR product_name ~* '^[a-z0-9-]+$'
+              OR product_name ILIKE '%FANZA%'
+              OR product_name ILIKE '%age verification%'
+            )
         `;
       }
       if (actressNames.length === 0 && meta.actressNames.length > 0) {
