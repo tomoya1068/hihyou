@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>アクセスログビューア</title>
+    <style>
+      body {
+        font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+        background: #0a1022;
+        color: #e6edf7;
+        margin: 0;
+        padding: 20px;
+      }
+      h1, h2 { margin: 0 0 12px; }
+      .panel {
+        border: 1px solid #2b3658;
+        background: #0e1630;
+        border-radius: 12px;
+        padding: 14px;
+        margin-bottom: 14px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      input, button {
+        border-radius: 8px;
+        border: 1px solid #334368;
+        background: #09122a;
+        color: #e6edf7;
+        padding: 8px 10px;
+      }
+      button { cursor: pointer; }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+      }
+      th, td {
+        border-bottom: 1px solid #263455;
+        text-align: left;
+        padding: 6px 4px;
+        font-size: 13px;
+      }
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
+      }
+      .card {
+        border: 1px solid #2c3b63;
+        border-radius: 10px;
+        padding: 10px;
+        background: #0b1430;
+      }
+      .warn {
+        color: #ffd580;
+      }
+      .ok {
+        color: #9df2bd;
+      }
+      .muted {
+        color: #9db0d2;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>アクセスログビューア</h1>
+    <div class="panel">
+      <div class="row">
+        <label>
+          サイトURL:
+          <input id="siteUrl" size="42" value="https://hihyou.vercel.app" />
+        </label>
+        <label>
+          集計時間:
+          <input id="hours" type="number" min="1" max="720" value="24" style="width: 90px;" />
+        </label>
+        <button id="loadBtn">読み込み</button>
+      </div>
+      <p class="muted">このHTMLを開くだけで、何時に何回アクセスがあったか確認できます。</p>
+    </div>
+
+    <div class="panel">
+      <h2>概要</h2>
+      <div id="status" class="muted">未読み込み</div>
+      <div id="summary" class="summary"></div>
+    </div>
+
+    <div class="panel">
+      <h2>時間別アクセス</h2>
+      <table>
+        <thead>
+          <tr><th>時間</th><th>アクセス数</th><th>ユニーク訪問者</th></tr>
+        </thead>
+        <tbody id="hourlyBody"></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h2>直近ログ</h2>
+      <table>
+        <thead>
+          <tr><th>時刻</th><th>ページ</th><th>訪問者ID</th><th>参照元</th></tr>
+        </thead>
+        <tbody id="recentBody"></tbody>
+      </table>
+    </div>
+
+    <script>
+      const siteUrlInput = document.getElementById("siteUrl");
+      const hoursInput = document.getElementById("hours");
+      const loadBtn = document.getElementById("loadBtn");
+      const statusEl = document.getElementById("status");
+      const summaryEl = document.getElementById("summary");
+      const hourlyBody = document.getElementById("hourlyBody");
+      const recentBody = document.getElementById("recentBody");
+
+      function escapeHtml(text) {
+        return String(text ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;");
+      }
+
+      function renderSummary(data) {
+        const s = data.summary;
+        const maybeOthers =
+          s.uniqueVisitors >= 2
+            ? `<div class="warn">自分以外のアクセスがある可能性: 高い（推定${s.uniqueVisitors}人）</div>`
+            : `<div class="ok">今のところ自分だけの可能性が高い（推定${s.uniqueVisitors}人）</div>`;
+        summaryEl.innerHTML = `
+          <div class="card"><div class="muted">総アクセス</div><div>${s.totalHits}</div></div>
+          <div class="card"><div class="muted">推定ユニーク訪問者</div><div>${s.uniqueVisitors}</div></div>
+          <div class="card"><div class="muted">直近24時間アクセス</div><div>${s.last24hHits}</div></div>
+          <div class="card"><div class="muted">直近24時間ユニーク</div><div>${s.last24hUniqueVisitors}</div></div>
+          <div class="card" style="grid-column:1 / -1">${maybeOthers}</div>
+        `;
+      }
+
+      function renderHourly(rows) {
+        hourlyBody.innerHTML = rows
+          .map((row) => `<tr><td>${escapeHtml(row.hour)}</td><td>${row.hits}</td><td>${row.uniqueVisitors}</td></tr>`)
+          .join("");
+      }
+
+      function renderRecent(rows) {
+        recentBody.innerHTML = rows
+          .map((row) => {
+            const time = new Date(row.accessedAt).toLocaleString("ja-JP");
+            const visitor = (row.visitorHash || "").slice(0, 12);
+            return `<tr>
+              <td>${escapeHtml(time)}</td>
+              <td>${escapeHtml(row.path)}</td>
+              <td>${escapeHtml(visitor)}</td>
+              <td>${escapeHtml(row.referer || "-")}</td>
+            </tr>`;
+          })
+          .join("");
+      }
+
+      async function loadStats() {
+        const base = siteUrlInput.value.trim().replace(/\/+$/, "");
+        const hours = Math.max(1, Math.min(720, Number(hoursInput.value) || 24));
+        statusEl.textContent = "読み込み中...";
+        try {
+          const res = await fetch(`${base}/api/access/stats?hours=${hours}&recent=120`, { cache: "no-store" });
+          const data = await res.json();
+          if (!res.ok || !data.ok) throw new Error(data.message || "failed");
+          statusEl.textContent = `最終更新: ${new Date(data.generatedAt).toLocaleString("ja-JP")} / 対象 ${data.hours}時間`;
+          renderSummary(data);
+          renderHourly(data.hourly || []);
+          renderRecent(data.recent || []);
+        } catch (err) {
+          statusEl.textContent = `取得失敗: ${String(err.message || err)}`;
+          summaryEl.innerHTML = "";
+          hourlyBody.innerHTML = "";
+          recentBody.innerHTML = "";
+        }
+      }
+
+      loadBtn.addEventListener("click", loadStats);
+      loadStats();
+    </script>
+  </body>
+</html>

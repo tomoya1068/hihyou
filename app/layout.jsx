@@ -1,6 +1,7 @@
 ﻿import "@/app/globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import AccessTracker from "@/components/AccessTracker";
 
 const siteName = "みんなのおすすめAV";
 const siteDescription = "AV・Fantiaレビューの投稿、検索、統計をまとめたレビューサイト";
@@ -32,6 +33,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="ja">
       <body className="app-body antialiased">
+        <AccessTracker />
         <div className="app-backdrop" />
         <div className="relative z-10 flex min-h-screen flex-col">
           <Header />
